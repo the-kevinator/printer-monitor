@@ -256,6 +256,7 @@ class DiscoveryRunner:
         on_found: Callable[[DiscoveryResult], None] | None = None,
         on_complete: Callable[[list[DiscoveryResult]], None] | None = None,
         targets: Sequence[str] | None = None,
+        subnets: Sequence[str] | None = None,
     ) -> bool:
         with self._lock:
             if self._thread and self._thread.is_alive():
@@ -263,7 +264,7 @@ class DiscoveryRunner:
             self._cancel.clear()
             self._thread = threading.Thread(
                 target=self._run,
-                args=(on_found, on_complete, targets),
+                args=(on_found, on_complete, targets, subnets),
                 name="printer-discovery",
                 daemon=True,
             )
@@ -274,15 +275,17 @@ class DiscoveryRunner:
         self,
         on_found: Callable[[DiscoveryResult], None] | None = None,
         targets: Sequence[str] | None = None,
+        subnets: Sequence[str] | None = None,
     ) -> list[DiscoveryResult]:
         """Synchronous sweep, used by tests and the CLI."""
-        return self._run(on_found, None, targets)
+        return self._run(on_found, None, targets, subnets)
 
     def _run(
         self,
         on_found: Callable[[DiscoveryResult], None] | None,
         on_complete: Callable[[list[DiscoveryResult]], None] | None,
         targets: Sequence[str] | None,
+        subnets: Sequence[str] | None = None,
     ) -> list[DiscoveryResult]:
         progress = self.progress
         addresses = list(targets) if targets is not None else self.settings.sweep_targets()
@@ -297,7 +300,11 @@ class DiscoveryRunner:
             progress.found = 0
             progress.error = None
             progress.cancelled = False
-            progress.subnets = list(self.settings.subnets)
+            # `subnets` is what to *display*; a scan of one range from the
+            # dashboard covers a subset of the configured list.
+            progress.subnets = list(
+                subnets if subnets is not None else self.settings.subnets
+            )
             progress.last_found = []
 
         problems = self.settings.validate()

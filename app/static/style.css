@@ -246,7 +246,8 @@ a:hover { text-decoration: underline; }
   color: var(--ink-muted);
   pointer-events: none;
 }
-input[type="text"], input[type="search"], select, textarea {
+input[type="text"], input[type="search"], input[type="password"],
+select, textarea {
   width: 100%;
   font: inherit;
   color: var(--ink-primary);
@@ -663,4 +664,170 @@ dialog .hint { font-size: 12px; color: var(--ink-muted); }
 @media print {
   .topbar-actions, .toolbar, .card-foot { display: none; }
   body { background: #fff; }
+}
+
+/* ------------------------------------------------------- sign-in and account */
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.topbar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: var(--line-hair);
+}
+.account { display: flex; align-items: center; gap: 8px; }
+.account form { display: contents; }
+.account-name {
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The header's subnet summary is a button now that it opens the editor, but
+   it has to keep reading as the quiet caption it was. */
+.sub-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-bottom: 1px dashed var(--line-axis);
+}
+.sub-link:hover { color: var(--ink-secondary); border-bottom-color: var(--ink-muted); }
+
+.linkish {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.signin-page { display: grid; place-items: center; min-height: 100vh; }
+.signin { width: min(400px, calc(100% - 32px)); padding: 24px 0; }
+.signin-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 18px;
+  color: var(--accent);
+}
+.signin-brand h1 { margin: 0; font-size: 18px; color: var(--ink-primary); }
+.signin-card {
+  background: var(--surface-1);
+  border: 1px solid var(--ring);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+}
+.signin-card h2 { margin: 0; font-size: 16px; }
+.signin-card label { display: grid; gap: 5px; font-size: 12.5px; color: var(--ink-secondary); }
+.signin-card .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+.signin .meta-note { text-align: center; margin-top: 14px; }
+
+.signin-error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--critical) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--critical) 38%, transparent);
+  color: var(--ink-primary);
+  font-size: 12.5px;
+}
+.signin-error svg { flex: none; color: var(--critical); }
+
+/* ------------------------------------------------------------ subnet editor */
+
+dialog.dialog-wide { max-width: 560px; }
+.dialog-body { padding: 15px 18px; display: grid; gap: 18px; }
+.dialog-foot {
+  padding: 12px 18px;
+  border-top: 1px solid var(--line-hair);
+  background: var(--surface-2);
+}
+
+.subnet-section { display: grid; gap: 9px; }
+.subnet-section h3 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.subnet-section h3 .count {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+.subnet-list { display: grid; gap: 6px; }
+.subnet-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-hair);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+/* A switched-off range is dimmed but still fully legible: it is parked, not
+   broken, and the label explaining it still has to be readable. */
+.subnet-row.is-off { background: var(--surface-2); }
+.subnet-row.is-off .subnet-cidr { color: var(--ink-muted); }
+.subnet-row.is-bad { border-color: color-mix(in srgb, var(--critical) 45%, transparent); }
+.subnet-toggle { display: flex; align-items: center; flex: none; }
+.subnet-toggle input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+.subnet-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 9px; }
+.subnet-cidr { font-size: 13px; color: var(--ink-primary); }
+.subnet-label { font-size: 12.5px; color: var(--ink-secondary); }
+.subnet-meta { font-size: 11.5px; color: var(--ink-muted); }
+.subnet-problem {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--critical);
+}
+
+.subnet-add { display: flex; gap: 6px; }
+.subnet-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--line-axis);
+  border-radius: var(--radius-sm);
+}
+.subnet-add input:first-child { font-family: var(--mono); font-size: 12.5px; flex: 1.2; }
+.subnet-add input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+@media (max-width: 560px) {
+  .subnet-add { flex-wrap: wrap; }
+  .subnet-add input { flex-basis: 100%; }
+  .account-name { display: none; }
 }

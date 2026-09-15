@@ -52,12 +52,24 @@ class Settings:
     web_probe_ports: list[int] = field(default_factory=lambda: [443, 80, 8443, 8080])
     web_probe_timeout: float = 0.6
 
+    # -- access control --------------------------------------------------
+    # Accounts live in data/users.json and are managed from the dashboard or
+    # `manage.py user`. Until the first one exists the app is wide open, so an
+    # upgrade never locks the admin out; the dashboard says so until it is set.
+    session_hours: int = 12
+    # Subnets typed into the dashboard are refused if they are routable on the
+    # public internet. Set true only if an internal network really uses one.
+    allow_public_subnets: bool = False
+
     # -- storage ---------------------------------------------------------
     data_dir: str = str(APP_ROOT / "data")
 
     # -- populated at load time -----------------------------------------
     config_path: str | None = None
     subnets_autodetected: bool = False
+    # Where `subnets` came from before the dashboard took over: "config",
+    # "env" or "autodetected". Used once, to seed data/subnets.json.
+    subnets_source: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -77,6 +89,19 @@ class Settings:
     @property
     def printers_file(self) -> Path:
         return Path(self.data_dir) / "printers.json"
+
+    @property
+    def subnets_file(self) -> Path:
+        """Where the dashboard-managed subnet list is kept."""
+        return Path(self.data_dir) / "subnets.json"
+
+    @property
+    def users_file(self) -> Path:
+        return Path(self.data_dir) / "users.json"
+
+    @property
+    def secret_key_file(self) -> Path:
+        return Path(self.data_dir) / "secret_key"
 
     def sweep_targets(self) -> list[str]:
         """Expand the configured subnets into host addresses to probe."""
@@ -119,6 +144,8 @@ class Settings:
             problems.append("snmp_timeout must be positive")
         if self.discovery_workers < 1:
             problems.append("discovery_workers must be at least 1")
+        if self.session_hours < 1:
+            problems.append("session_hours must be at least 1")
         return problems
 
 
@@ -209,6 +236,8 @@ _ENV_FIELDS: dict[str, str] = {
     "WEB_PROBE_PORTS": "web_probe_ports",
     "WEB_PROBE_TIMEOUT": "web_probe_timeout",
     "DATA_DIR": "data_dir",
+    "SESSION_HOURS": "session_hours",
+    "ALLOW_PUBLIC_SUBNETS": "allow_public_subnets",
 }
 
 _LIST_FIELDS = {
@@ -217,9 +246,10 @@ _LIST_FIELDS = {
 _INT_FIELDS = {
     "snmp_port", "snmp_retries", "discovery_workers", "poll_workers",
     "poll_interval_seconds", "discovery_interval_seconds", "low_toner_threshold",
+    "session_hours",
 }
 _FLOAT_FIELDS = {"snmp_timeout", "web_probe_timeout"}
-_BOOL_FIELDS = {"auto_discover_on_start", "poller_enabled"}
+_BOOL_FIELDS = {"auto_discover_on_start", "poller_enabled", "allow_public_subnets"}
 
 
 def _coerce(name: str, value: Any) -> Any:
@@ -264,21 +294,26 @@ def load_settings(path: str | Path | None = None) -> Settings:
             raise ValueError(f"config {config_path} must contain a JSON object")
         known = {f.name for f in Settings.__dataclass_fields__.values()}
         for key, value in raw.items():
-            if key in {"config_path", "subnets_autodetected"}:
+            if key in {"config_path", "subnets_autodetected", "subnets_source"}:
                 continue
             if key in known and value is not None:
                 setattr(settings, key, _coerce(key, value))
+                if key == "subnets":
+                    settings.subnets_source = "config"
         settings.config_path = str(config_path)
 
     for env_suffix, field_name in _ENV_FIELDS.items():
         env_value = os.environ.get(_ENV_PREFIX + env_suffix)
         if env_value is not None and env_value != "":
             setattr(settings, field_name, _coerce(field_name, env_value))
+            if field_name == "subnets":
+                settings.subnets_source = "env"
 
     if not settings.subnets:
         detected = detect_local_subnets()
         if detected:
             settings.subnets = detected
             settings.subnets_autodetected = True
+            settings.subnets_source = "autodetected"
 
     return settings

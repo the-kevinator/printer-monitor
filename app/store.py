@@ -8,14 +8,13 @@ and the file doubles as an editable inventory.
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 import threading
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Iterable
+
+from .jsonfile import quarantine, read_json, write_atomic
 
 SCHEMA_VERSION = 1
 
@@ -79,12 +78,11 @@ class PrinterStore:
             if not self.path.is_file():
                 self._printers = {}
                 return
-            try:
-                raw = json.loads(self.path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+            raw = read_json(self.path)
+            if raw is None:
                 # A corrupt inventory should not stop the service from coming
                 # up; keep the bad file aside so it can be inspected.
-                self._quarantine_bad_file()
+                quarantine(self.path)
                 self._printers = {}
                 return
 
@@ -109,48 +107,17 @@ class PrinterStore:
                 loaded[record.ip] = record
             self._printers = loaded
 
-    def _quarantine_bad_file(self) -> None:
-        try:
-            backup = self.path.with_suffix(
-                self.path.suffix + f".corrupt-{int(time.time())}"
-            )
-            self.path.replace(backup)
-        except OSError:
-            pass
-
     def save(self, force: bool = False) -> None:
         """Atomically write the inventory, so a crash cannot truncate it."""
         with self._lock:
             if not self._dirty and not force:
                 return
-            payload = {
+            write_atomic(self.path, {
                 "schema_version": SCHEMA_VERSION,
                 "saved_at": time.time(),
                 "printers": [record.as_dict() for record in self._sorted()],
-            }
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            handle = tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=str(self.path.parent),
-                prefix=self.path.name + ".",
-                suffix=".tmp",
-                delete=False,
-            )
-            temp_name = handle.name
-            try:
-                with handle:
-                    json.dump(payload, handle, indent=2, default=str)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(temp_name, self.path)
-                self._dirty = False
-            except OSError:
-                try:
-                    os.unlink(temp_name)
-                except OSError:
-                    pass
-                raise
+            })
+            self._dirty = False
 
     def _touch(self) -> None:
         self._dirty = True

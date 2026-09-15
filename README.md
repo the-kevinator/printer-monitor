@@ -9,14 +9,21 @@ dependencies.
 
 ![The dashboard: stat tiles, then one card per printer with toner meters, alerts and a link to each printer's own web interface](docs/dashboard.png)
 
-<sub>Screenshots taken against a simulated fleet, so the addresses are loopback ones.</sub>
+Subnets are edited in the app — add a range, label it, switch it off, or sweep
+just that one, without touching a config file or restarting:
+
+![The subnet editor: a list of ranges with checkboxes, labels and address counts, a never-scan list below it, and the total addresses per sweep](docs/subnets.png)
+
+<sub>Screenshots taken against a simulated fleet on a private range.</sub>
 
 <details>
-<summary>Table view and per-printer detail</summary>
+<summary>Table view, per-printer detail and the sign-in page</summary>
 
 ![Sortable table view](docs/dashboard-table.png)
 
 ![Detail page for one printer](docs/printer-detail.png)
+
+![The sign-in page](docs/login.png)
 
 </details>
 
@@ -25,6 +32,11 @@ dependencies.
 - **Finds printers automatically.** Sweeps the subnets you configure over SNMP
   and keeps anything that exposes the standard Printer MIB. Switches, servers
   and UPSs that also answer SNMP are ignored.
+- **Subnets are managed in the app.** Add, label, switch off or scan a range
+  from the dashboard; no config file edit and no restart. Each range shows how
+  many addresses it covers before you scan it.
+- **A login for changes.** Anyone can view the dashboard; changing subnets,
+  running discovery or editing the printer list needs an account.
 - **One click to each printer's web interface.** Discovery probes for the
   embedded web server (443/80/8443/8080) and records the right URL, so the
   dashboard's "Web UI" button opens the real thing.
@@ -69,9 +81,11 @@ dependencies.
    notepad config.json
    ```
 
-   At minimum set `subnets` to the ranges your printers live on, and
-   `data_dir` to a writable folder. If you leave `subnets` out, the app guesses
-   the server's own /24 and tells you so on the dashboard.
+   Set `data_dir` to a writable folder. You can also put your printer VLANs in
+   `subnets` here to save typing them in later — on the first start they are
+   copied into `data\subnets.json` and from then on the dashboard owns the
+   list (see [Subnets](#subnets)). If you leave `subnets` out, the app guesses
+   the server's own /24 and says so on the dashboard.
 
 4. **Check it works before involving IIS:**
 
@@ -84,16 +98,28 @@ dependencies.
    [Troubleshooting](#troubleshooting) — it is almost always SNMP, and it is
    much easier to fix here than through IIS.
 
-5. **Add the IIS site.** In IIS Manager, add a website (or an application under
+5. **Create a login:**
+
+   ```bat
+   .venv\Scripts\python.exe manage.py user add yourname
+   ```
+
+   Until an account exists, anyone who can reach the dashboard can change it,
+   and the page carries a banner saying so. You can also create the first
+   account from the browser by clicking through that banner.
+
+6. **Add the IIS site.** In IIS Manager, add a website (or an application under
    an existing site) pointing at `C:\inetpub\printer-monitor`. The supplied
    `web.config` wires up HttpPlatformHandler; edit the two paths in it if you
    installed somewhere other than `C:\inetpub\printer-monitor`.
 
-6. **Grant write access.** The app pool identity (by default
+7. **Grant write access.** The app pool identity (by default
    `IIS AppPool\<your app pool name>`) needs Modify on the `data` and `logs`
-   folders — that is where the printer inventory and the startup log are written.
+   folders — that is where the printer inventory, the subnet list, the accounts
+   and the startup log are written. This is no longer optional: the dashboard
+   cannot save a subnet or an account without it.
 
-7. **Keep the app pool alive.** This matters: the background poller lives inside
+8. **Keep the app pool alive.** This matters: the background poller lives inside
    the app process, so if IIS shuts the process down for being idle, polling
    stops until somebody loads the page again. On the app pool's Advanced
    Settings:
@@ -128,19 +154,98 @@ overridden by an environment variable named `PRINTER_MONITOR_<KEY>`. See
 
 | Key | Default | Notes |
 |---|---|---|
-| `subnets` | autodetected /24 | CIDR ranges to sweep. Add one per printer VLAN. |
+| `subnets` | autodetected /24 | **Seed only.** Copied into `data/subnets.json` on the first start; edit them in the dashboard after that. See [Subnets](#subnets). |
 | `community` | `public` | SNMP v2c read community. |
 | `communities` | `[]` | Extra communities to try, for a mixed fleet. |
-| `exclude_ips` | `[]` | Addresses or ranges never to probe. |
+| `exclude_ips` | `[]` | **Seed only**, as above — the "Never scan" list in the dashboard. |
 | `manual_printers` | `[]` | Printers outside the swept ranges. |
 | `poll_interval_seconds` | `300` | How often toner and status are re-read. |
 | `discovery_interval_seconds` | `3600` | Re-sweep interval; `0` disables it. |
 | `low_toner_threshold` | `20` | Percent at or below which a supply is amber. |
 | `data_dir` | `./data` | Where `printers.json` is written. |
 | `poller_enabled` | `true` | `false` serves the dashboard with no SNMP traffic. |
+| `allow_public_subnets` | `false` | Permit internet-routable ranges in the subnet editor. |
+| `session_hours` | `12` | How long a sign-in lasts. |
 
 A sweep is capped at 8192 addresses per range, so a mistyped mask cannot turn
 into an hours-long scan. Use several narrow ranges rather than one wide one.
+
+## Subnets
+
+The ranges discovery sweeps are managed in the app, under **Subnets** in the
+header. Changes save immediately to `data/subnets.json` and take effect on the
+next sweep — no restart.
+
+- **Add a range** as a CIDR (`10.10.20.0/24`) or a bare address, with an
+  optional label. A host address inside a range is accepted and canonicalised,
+  so typing `10.10.20.57/24` gives you `10.10.20.0/24`.
+- **Switch a range off** instead of deleting it when you want to park it — the
+  label explaining what it is stays with it.
+- **Scan** sweeps one range on its own, which is the quick way to check a VLAN
+  you just added without re-scanning everything.
+- **Never scan** holds addresses inside those ranges to leave alone: a gateway,
+  a firewall, anything that alerts on an SNMP probe.
+
+The address count shown is what a sweep will really probe — exclusions are
+subtracted and overlapping ranges are only counted once.
+
+**config.json seeds this file once and is then ignored.** On the first start
+that finds no `data/subnets.json`, the `subnets` and `exclude_ips` keys (or the
+`PRINTER_MONITOR_SUBNETS` environment variable, or the autodetected /24) are
+copied in. After that the dashboard is the only authority, and editing
+config.json will not change what gets scanned. A seeded value that is not
+usable is kept in the list but switched off, so you can see and fix it rather
+than wonder where it went.
+
+Two limits apply to anything typed in:
+
+- **8192 addresses per range** (a /19), the same cap the config file had.
+- **Internal ranges only** — 10/8, 172.16/12, 192.168/16, 100.64/10,
+  link-local and the documentation ranges. Anything routable on the public
+  internet is refused, since the dashboard would otherwise be a way for anyone
+  who can reach it to scan the internet from your server. Set
+  `"allow_public_subnets": true` in config.json if an internal network really
+  uses a public block. The limit does not apply to the "Never scan" list,
+  because excluding an address only ever narrows a sweep.
+
+From the console:
+
+```bat
+.venv\Scripts\python.exe manage.py subnets list
+.venv\Scripts\python.exe manage.py subnets add 10.10.30.0/24 --label "Floor 3"
+.venv\Scripts\python.exe manage.py subnets add 10.10.30.1 --kind exclude
+.venv\Scripts\python.exe manage.py subnets remove 10.10.30.0/24
+```
+
+## Accounts
+
+Viewing the dashboard is open to anyone who can reach it. Changing anything —
+subnets, discovery, adding or editing printers, refreshing a poll — requires a
+signed-in account.
+
+```bat
+.venv\Scripts\python.exe manage.py user add yourname
+.venv\Scripts\python.exe manage.py user list
+.venv\Scripts\python.exe manage.py user passwd yourname
+.venv\Scripts\python.exe manage.py user remove olduser
+.venv\Scripts\python.exe manage.py user logout-all
+```
+
+Details worth knowing:
+
+- **Until the first account exists, the app is open**, exactly as it behaved
+  before accounts were added — upgrading an install cannot lock you out. The
+  dashboard shows a standing warning until you create one, and you can create
+  that first account straight from the banner.
+- Passwords are stored in `data/users.json` as PBKDF2-HMAC-SHA256 hashes
+  (600,000 iterations, per-user salt). Minimum length is 10 characters.
+- Sessions are a cookie signed with `data/secret_key`, valid for
+  `session_hours`. Deleting that file (or `manage.py user logout-all`) signs
+  everyone out at the next restart.
+- Changing a password immediately invalidates that user's existing sessions.
+- The last remaining account cannot be deleted, since that would silently
+  reopen the dashboard to everyone.
+- There are no roles: every account can change everything.
 
 ## Troubleshooting
 
@@ -165,7 +270,9 @@ usual causes applies:
   does not publish supply levels over SNMP. Very cheap inkjets and some label
   printers are like this. You still get status, page counts and the web UI link.
 
-**A printer is on a different subnet.** Use "Add by IP" on the dashboard, or put
+**A printer is on a different subnet.** Add that subnet under **Subnets** in
+the dashboard header and hit **Scan** next to it. For a one-off, use "Add by
+IP", or put
 it in `manual_printers`. It is then polled like any discovered printer.
 
 **Toner shows `n/a` or `OK` instead of a percentage.** The Printer MIB allows a
@@ -183,31 +290,61 @@ poller thread is running.
 
 ## JSON API
 
+Writes are marked 🔒 — they need a session cookie plus a matching `X-PM-CSRF`
+header once an account exists, and return `401` otherwise. Reads are open.
+
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/api/printers` | All printers with stats. Supports `?health=`, `?q=`, `?enabled_only=` |
 | `GET` | `/api/printers/{ip}` | One printer |
-| `POST` | `/api/printers` | Add one by hand: `{"ip": "...", "label": "...", "community": "..."}` |
-| `PATCH` | `/api/printers/{ip}` | Edit `label`, `notes`, `enabled`, `web_url`, `community` |
-| `DELETE` | `/api/printers/{ip}` | Remove from the inventory |
-| `POST` | `/api/printers/{ip}/refresh` | Poll one printer immediately |
-| `POST` | `/api/discover` | Start a sweep (409 if one is running) |
+| `POST` 🔒 | `/api/printers` | Add one by hand: `{"ip": "...", "label": "...", "community": "..."}` |
+| `PATCH` 🔒 | `/api/printers/{ip}` | Edit `label`, `notes`, `enabled`, `web_url`, `community` |
+| `DELETE` 🔒 | `/api/printers/{ip}` | Remove from the inventory |
+| `POST` 🔒 | `/api/printers/{ip}/refresh` | Poll one printer immediately |
+| `GET` | `/api/subnets` | The scan and never-scan lists, each entry with its validation result |
+| `POST` 🔒 | `/api/subnets` | Add a range: `{"cidr": "...", "label": "...", "kind": "include\|exclude"}` |
+| `PATCH` 🔒 | `/api/subnets/{id}` | Edit `label` or `enabled` |
+| `DELETE` 🔒 | `/api/subnets/{id}` | Remove a range |
+| `POST` 🔒 | `/api/subnets/{id}/scan` | Sweep just that range |
+| `POST` 🔒 | `/api/discover` | Start a sweep of every enabled range (409 if one is running) |
 | `GET` | `/api/discover` | Sweep progress |
-| `POST` | `/api/discover/cancel` | Stop the running sweep |
-| `POST` | `/api/poll` | Poll everything now |
+| `POST` 🔒 | `/api/discover/cancel` | Stop the running sweep |
+| `POST` 🔒 | `/api/poll` | Poll everything now |
 | `GET` | `/api/summary` | Counts by health, plus poller status |
 | `GET` | `/api/config` | Effective settings (community strings masked) |
-| `GET` | `/healthz` | Liveness, printer count, poller state |
+| `GET` | `/api/account` | Who is signed in, and the account list |
+| `POST` | `/api/account/setup` | Create the first account. Open only while none exists |
+| `POST` 🔒 | `/api/account/users` | Add an account |
+| `POST` 🔒 | `/api/account/password` | Change your own password |
+| `DELETE` 🔒 | `/api/account/users/{username}` | Remove an account |
+| `POST` | `/login` | Form sign-in; sets the session cookie |
+| `POST` | `/logout` | Clear the session cookie |
+| `GET` | `/healthz` | Liveness, printer count, poller state, whether accounts exist |
 | `GET` | `/open/{ip}` | Redirect to that printer's web interface |
 
 Interactive API docs are at `/docs`.
 
 ## Security notes
 
-- **There is no authentication built in.** This is designed to sit on an
-  intranet. Put IIS Windows Authentication or an IP restriction in front of it
-  if that matters — the dashboard exposes printer inventory and serial numbers,
-  and the API can add and remove monitored devices.
+- **Reading is open; changing requires a sign-in.** See [Accounts](#accounts).
+  The dashboard and the read-only API expose printer inventory, serial numbers
+  and locations to anyone who can reach the site, so this is still an intranet
+  app — put IIS Windows Authentication or an IP restriction in front of it if
+  even that should be restricted.
+- **Create an account.** Until you do, the write API is open to everyone who
+  can reach the page, and that now includes pointing the SNMP sweep at a new
+  range. The dashboard warns about this until it is fixed.
+- **Serve it over HTTPS.** The session and sign-in credentials are only as
+  private as the transport. The cookies are marked `Secure` automatically when
+  the request arrives over HTTPS, `HttpOnly`, and `SameSite=Lax`; writes also
+  require a matching CSRF header.
+- **`data/` holds secrets now** — `users.json` (password hashes) and
+  `secret_key` (the cookie signing key). `web.config` already blocks IIS from
+  serving that folder; keep its NTFS permissions to the app pool identity and
+  your administrators, and keep it out of any backup that is widely readable.
+- Subnets typed into the dashboard are refused if they are routable on the
+  public internet, and capped at 8192 addresses, so the sweep cannot be aimed
+  outward or turned into an hours-long scan. See [Subnets](#subnets).
 - SNMP v2c community strings cross the network in clear text. That is a property
   of the protocol, not this app. `GET /api/config` masks them, and only read
   operations are ever performed — `app/snmp.py` implements no SET.
@@ -231,9 +368,14 @@ app/poller.py       Background thread: polls every enabled printer on an
                     interval and re-sweeps for new ones.
 app/store.py        JSON-backed inventory with atomic writes. Doubles as an
                     editable asset list; user edits survive rediscovery.
+app/subnets.py      The ranges to sweep: validation, include/exclude lists,
+                    JSON-backed so the dashboard can edit them.
+app/auth.py         Accounts and sessions: PBKDF2 hashing and HMAC-signed
+                    cookies, both from the standard library.
+app/jsonfile.py     Atomic JSON read/write shared by the stores above.
 app/config.py       Layered config: defaults < config.json < environment.
 app/main.py         FastAPI routes and the dashboard.
-manage.py           CLI: probe, scan, config, serve.
+manage.py           CLI: probe, scan, config, subnets, user, serve.
 ```
 
 Discovery uses SNMP as the probe rather than a port scan because SNMP is also

@@ -13,7 +13,7 @@ import concurrent.futures
 import logging
 import threading
 import time
-from typing import Any
+from typing import Any, Sequence
 
 from .config import Settings
 from .discovery import DiscoveryResult, DiscoveryRunner, probe_web_interface, reverse_dns
@@ -243,8 +243,18 @@ class PollerService:
             self.request_poll_now()
         return found
 
-    def start_discovery(self) -> bool:
-        """Non-blocking sweep, for the API."""
+    def start_discovery(
+        self,
+        targets: Sequence[str] | None = None,
+        subnets: Sequence[str] | None = None,
+    ) -> bool:
+        """
+        Non-blocking sweep, for the API.
+
+        `targets` narrows the sweep to specific addresses, which is how the
+        dashboard scans a single subnet without touching the rest; `subnets` is
+        the range list to show in the progress banner while it does.
+        """
         self._ensure_manual_printers()
 
         def done(found: list[DiscoveryResult]) -> None:
@@ -255,7 +265,10 @@ class PollerService:
                 pass
             self.request_poll_now()
 
-        return self.discovery.start(on_found=self._absorb, on_complete=done)
+        return self.discovery.start(
+            on_found=self._absorb, on_complete=done,
+            targets=targets, subnets=subnets,
+        )
 
     def _ensure_manual_printers(self) -> None:
         """Make sure anything listed in config is present in the store."""

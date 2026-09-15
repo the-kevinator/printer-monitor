@@ -304,7 +304,7 @@ def test_urls_respect_an_iis_virtual_application_prefix(client):
 
     with TestClient(client.app_module.app, root_path="/printers") as prefixed:
         body = prefixed.get("/").text
-        assert '<body data-base="/printers">' in body
+        assert '<body data-base="/printers"' in body
         assert 'href="/printers/static/style.css"' in body
         assert 'src="/printers/static/app.js"' in body
 
@@ -315,7 +315,7 @@ def test_urls_respect_an_iis_virtual_application_prefix(client):
 
 def test_urls_have_no_prefix_when_mounted_at_the_root(client):
     body = client.get("/").text
-    assert '<body data-base="">' in body
+    assert '<body data-base=""' in body
     assert 'href="/static/style.css"' in body
 
 

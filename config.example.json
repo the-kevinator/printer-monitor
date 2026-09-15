@@ -1,11 +1,17 @@
 {
   "//": "Copy to config.json and edit. Every key is optional.",
 
-  "//subnets": "CIDR ranges to sweep. Add one per printer VLAN. If omitted, the server's own /24 is guessed.",
+  "//subnets": "SEED ONLY. Copied into data/subnets.json on the first start that finds no such file; after that the ranges are managed in the dashboard under 'Subnets' and this key is ignored. If omitted, the server's own /24 is guessed.",
   "subnets": ["10.10.20.0/24", "10.10.30.0/24"],
 
-  "//exclude_ips": "Addresses or ranges never to probe (gateways, sensitive hosts).",
+  "//exclude_ips": "SEED ONLY, as above -- becomes the dashboard's 'Never scan' list. Addresses never to probe (gateways, sensitive hosts).",
   "exclude_ips": ["10.10.20.1", "10.10.20.240/28"],
+
+  "//allow_public_subnets": "Subnets typed into the dashboard must be internal ranges (10/8, 172.16/12, 192.168/16, 100.64/10, link-local). Set true only if an internal network really uses a publicly routable block.",
+  "allow_public_subnets": false,
+
+  "//session_hours": "How long a dashboard sign-in lasts. Accounts live in data/users.json; create the first with `manage.py user add <name>`.",
+  "session_hours": 12,
 
   "//manual_printers": "Printers outside the swept ranges; always monitored.",
   "manual_printers": [],
@@ -39,7 +45,7 @@
   "web_probe_ports": [443, 80, 8443, 8080],
   "web_probe_timeout": 0.6,
 
-  "//data_dir": "Where printers.json is written. The IIS app pool identity needs write access here.",
+  "//data_dir": "Where printers.json, subnets.json, users.json and secret_key are written. The IIS app pool identity MUST have write access here.",
   "data_dir": "C:\\inetpub\\printer-monitor\\data",
 
   "//poller_enabled": "Set false to serve the dashboard with no background SNMP traffic.",

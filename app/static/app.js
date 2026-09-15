@@ -8,7 +8,14 @@
   /* Set by the server template; non-empty when the app is mounted under
      an IIS virtual application path such as "/printers". */
   var BASE = (document.body && document.body.dataset.base) || "";
+  var DATA = (document.body && document.body.dataset) || {};
   var state = {
+    auth: {
+      signedIn: DATA.signedIn === "true",
+      username: DATA.username || null,
+      unconfigured: DATA.unconfigured === "true"
+    },
+    subnets: null,          // the /api/subnets payload, once loaded
     printers: [],
     summary: null,
     poller: null,
@@ -419,17 +426,42 @@
 
   // ---------------------------------------------------------------- data
 
+  /* The CSRF cookie is readable on purpose: every write echoes it back in a
+     header, which no other origin can do. */
+  function csrfToken() {
+    var match = document.cookie.match(/(?:^|;\s*)pm_csrf=([^;]*)/);
+    return match ? decodeURIComponent(match[1]) : (DATA.csrf || "");
+  }
+
   function api(path, options) {
-    return fetch(BASE + path, Object.assign({
-      headers: { "Content-Type": "application/json" }
-    }, options || {})).then(function (response) {
+    options = options || {};
+    var headers = { "Content-Type": "application/json" };
+    if (options.method && options.method !== "GET") {
+      headers["X-PM-CSRF"] = csrfToken();
+    }
+    return fetch(BASE + path, Object.assign({}, options, {
+      headers: Object.assign(headers, options.headers || {})
+    })).then(function (response) {
       return response.json().catch(function () { return {}; }).then(function (body) {
         if (!response.ok) {
-          throw new Error(body.detail || response.status + " " + response.statusText);
+          var err = new Error(body.detail || response.status + " " + response.statusText);
+          err.status = response.status;
+          throw err;
         }
         return body;
       });
     });
+  }
+
+  /* A write rejected for want of a session should send the person to the
+     login page rather than pop an alert they cannot act on. */
+  function handleWriteError(err, what) {
+    if (err && err.status === 401) {
+      window.location.href = BASE + "/login?next=" +
+        encodeURIComponent(window.location.pathname + window.location.search);
+      return;
+    }
+    window.alert(what + ": " + err.message);
   }
 
   function load() {
@@ -438,6 +470,16 @@
       state.summary = data.summary;
       state.poller = data.poller;
       state.lowThreshold = data.low_toner_threshold;
+      if (data.auth) {
+        var changed = state.auth.signedIn !== data.auth.signed_in ||
+          state.auth.unconfigured !== data.auth.unconfigured;
+        state.auth.signedIn = data.auth.signed_in;
+        state.auth.username = data.auth.username;
+        state.auth.unconfigured = data.auth.unconfigured;
+        // A session that expired in a background tab should show as signed out
+        // rather than leave the write buttons looking available.
+        if (changed) renderAccount();
+      }
       state.loaded = true;
       state.error = null;
       render();
@@ -463,6 +505,267 @@
     }).catch(function () { /* transient; the periodic refresh will recover */ });
   }
 
+
+  // ------------------------------------------------------- subnet manager
+
+  var SOURCE_LABELS = {
+    config: "from config.json",
+    env: "from the environment",
+    autodetected: "guessed from this server",
+    manual: ""
+  };
+
+  function subnetRow(entry, kind) {
+    var problem = entry.valid ? "" :
+      '<div class="subnet-problem">' + esc(entry.problem) + "</div>";
+    var origin = SOURCE_LABELS[entry.source] || "";
+    var meta = [];
+    if (entry.valid) {
+      meta.push(entry.host_count.toLocaleString() +
+        (entry.host_count === 1 ? " address" : " addresses"));
+    }
+    if (origin) meta.push(origin);
+
+    /* A range is switched off rather than deleted when it is temporarily not
+       wanted, so the label explaining what it is survives. */
+    var toggleTitle = entry.enabled ? "Stop scanning this range"
+                                    : "Start scanning this range again";
+    var scanBtn = (kind === "include" && entry.valid && entry.enabled)
+      ? '<button class="btn btn-sm" type="button" data-sub-act="scan" data-id="' +
+        esc(entry.id) + '" title="Sweep only this range now">Scan</button>'
+      : "";
+
+    return '<div class="subnet-row' + (entry.enabled ? "" : " is-off") +
+        (entry.valid ? "" : " is-bad") + '" data-id="' + esc(entry.id) + '">' +
+      '<label class="subnet-toggle" title="' + esc(toggleTitle) + '">' +
+        '<input type="checkbox" data-sub-act="toggle" data-id="' + esc(entry.id) +
+          '"' + (entry.enabled ? " checked" : "") + '>' +
+        '<span class="sr-only">Scan ' + esc(entry.cidr) + "</span>" +
+      "</label>" +
+      '<div class="subnet-main">' +
+        '<span class="subnet-cidr mono">' + esc(entry.cidr) + "</span>" +
+        (entry.label ? '<span class="subnet-label">' + esc(entry.label) + "</span>" : "") +
+        (meta.length ? '<span class="subnet-meta">' + esc(meta.join(" · ")) + "</span>" : "") +
+        problem +
+      "</div>" +
+      scanBtn +
+      '<button class="btn btn-sm btn-danger" type="button" data-sub-act="delete" ' +
+        'data-id="' + esc(entry.id) + '" title="Remove this range">' +
+        '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3.4 3.4l9.2 9.2"/><path d="M12.6 3.4l-9.2 9.2"/></svg>' +
+        '<span class="sr-only">Remove ' + esc(entry.cidr) + "</span>" +
+      "</button>" +
+      "</div>";
+  }
+
+  function renderSubnets() {
+    var data = state.subnets;
+    if (!data) return;
+
+    var includes = data.subnets || [];
+    var excludes = data.exclusions || [];
+
+    el.subnetList.innerHTML = includes.length
+      ? includes.map(function (e) { return subnetRow(e, "include"); }).join("")
+      : '<p class="meta-note">No ranges yet. Add one below to let discovery ' +
+        "find printers.</p>";
+    el.excludeList.innerHTML = excludes.length
+      ? excludes.map(function (e) { return subnetRow(e, "exclude"); }).join("")
+      : '<p class="meta-note">Nothing excluded.</p>';
+
+    var active = includes.filter(function (e) { return e.enabled && e.valid; });
+    el.subnetCount.textContent = active.length
+      ? active.length + (active.length === 1 ? " range, " : " ranges, ") +
+        data.sweep_target_count.toLocaleString() + " addresses per sweep"
+      : "nothing will be scanned";
+
+    var notes = ["Saved in " + data.path + "."];
+    if (!data.allow_public_subnets) {
+      notes.push("Only internal ranges are accepted; set " +
+        '"allow_public_subnets": true in config.json to lift that.');
+    }
+    notes.push("Each range is capped at " +
+      data.max_hosts.toLocaleString() + " addresses.");
+    el.subnetFootnote.textContent = notes.join(" ");
+
+    /* Keep the header summary honest as soon as the list changes, rather than
+       leaving it stale until the next full page load. */
+    if (el.subnetSummary) {
+      el.subnetSummary.textContent = active.length
+        ? active.map(function (e) { return e.cidr; }).join(", ")
+        : "no subnets configured";
+    }
+  }
+
+  function subnetError(message) {
+    if (!message) {
+      el.subnetError.hidden = true;
+      el.subnetError.textContent = "";
+      return;
+    }
+    el.subnetError.hidden = false;
+    el.subnetError.textContent = message;
+  }
+
+  function loadSubnets() {
+    return api("/api/subnets").then(function (data) {
+      state.subnets = data;
+      renderSubnets();
+    });
+  }
+
+  function applySubnetPayload(payload) {
+    state.subnets = payload;
+    renderSubnets();
+    subnetError(null);
+    load();  // the sweep footprint changed; refresh the dashboard's view of it
+  }
+
+  function openSubnets() {
+    subnetError(null);
+    loadSubnets().then(function () {
+      $("subnet-dialog").showModal();
+    }).catch(function (err) {
+      window.alert("Could not load the subnet list: " + err.message);
+    });
+  }
+
+  function addSubnet(kind, cidrInput, labelInput, form) {
+    var cidr = cidrInput.value.trim();
+    if (!cidr) return;
+    var submit = form.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    api("/api/subnets", {
+      method: "POST",
+      body: JSON.stringify({
+        cidr: cidr, kind: kind, label: labelInput.value.trim() || null
+      })
+    }).then(function (payload) {
+      cidrInput.value = "";
+      labelInput.value = "";
+      applySubnetPayload(payload);
+      cidrInput.focus();
+    }).catch(function (err) {
+      if (err.status === 401) { handleWriteError(err, ""); return; }
+      subnetError(err.message);
+    }).then(function () { submit.disabled = false; });
+  }
+
+  function wireSubnetDialog() {
+    var dialog = $("subnet-dialog");
+
+    dialog.addEventListener("click", function (event) {
+      var target = event.target.closest("[data-sub-act]");
+      if (!target) return;
+      var action = target.getAttribute("data-sub-act");
+      var id = target.getAttribute("data-id");
+
+      if (action === "toggle") {
+        api("/api/subnets/" + encodeURIComponent(id), {
+          method: "PATCH",
+          body: JSON.stringify({ enabled: target.checked })
+        }).then(applySubnetPayload).catch(function (err) {
+          target.checked = !target.checked;
+          if (err.status === 401) { handleWriteError(err, ""); return; }
+          subnetError(err.message);
+        });
+        return;
+      }
+
+      if (action === "delete") {
+        var row = target.closest(".subnet-row");
+        var cidr = row ? row.querySelector(".subnet-cidr").textContent : "this range";
+        if (!window.confirm("Remove " + cidr + " from the list?\n\n" +
+            "Printers already discovered in it stay in the inventory; it just " +
+            "will not be swept again.")) {
+          return;
+        }
+        api("/api/subnets/" + encodeURIComponent(id), { method: "DELETE" })
+          .then(applySubnetPayload)
+          .catch(function (err) {
+            if (err.status === 401) { handleWriteError(err, ""); return; }
+            subnetError(err.message);
+          });
+        return;
+      }
+
+      if (action === "scan") {
+        target.disabled = true;
+        api("/api/subnets/" + encodeURIComponent(id) + "/scan", { method: "POST" })
+          .then(function () {
+            dialog.close();
+            pollDiscoveryUntilDone();
+          })
+          .catch(function (err) {
+            if (err.status === 401) { handleWriteError(err, ""); return; }
+            subnetError(err.message);
+          })
+          .then(function () { target.disabled = false; });
+      }
+    });
+
+    $("subnet-add").addEventListener("submit", function (event) {
+      event.preventDefault();
+      addSubnet("include", $("subnet-cidr"), $("subnet-label"), event.target);
+    });
+    $("exclude-add").addEventListener("submit", function (event) {
+      event.preventDefault();
+      addSubnet("exclude", $("exclude-cidr"), $("exclude-label"), event.target);
+    });
+    $("subnet-close").addEventListener("click", function () { dialog.close(); });
+  }
+
+  // ------------------------------------------------------------- accounts
+
+  function renderAccount() {
+    if (!el.account) return;
+    if (state.auth.unconfigured) {
+      el.account.innerHTML =
+        '<button class="btn btn-sm" type="button" data-act="setup-account">Set up login</button>';
+      return;
+    }
+    if (state.auth.signedIn) {
+      el.account.innerHTML =
+        '<span class="account-name" title="Signed in">' +
+          esc(state.auth.username) + "</span>" +
+        '<form method="post" action="' + BASE + '/logout">' +
+          '<button class="btn btn-sm" type="submit">Sign out</button>' +
+        "</form>";
+      return;
+    }
+    el.account.innerHTML =
+      '<a class="btn btn-sm" href="' + BASE + '/login?next=' +
+      encodeURIComponent(window.location.pathname) + '">Sign in</a>';
+  }
+
+  function wireSetupDialog() {
+    var form = $("setup-form");
+    if (!form) return;
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var pw = $("setup-password").value;
+      var err = $("setup-error");
+      if (pw !== $("setup-password2").value) {
+        err.hidden = false;
+        err.textContent = "The two passwords do not match.";
+        return;
+      }
+      var submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      api("/api/account/setup", {
+        method: "POST",
+        body: JSON.stringify({ username: $("setup-username").value, password: pw })
+      }).then(function () {
+        window.location.reload();
+      }).catch(function (e) {
+        err.hidden = false;
+        err.textContent = e.message;
+      }).then(function () { submit.disabled = false; });
+    });
+    $("setup-cancel").addEventListener("click", function () {
+      $("setup-dialog").close();
+    });
+  }
+
   // -------------------------------------------------------------- actions
 
   function startDiscovery() {
@@ -471,7 +774,7 @@
       pollDiscoveryUntilDone();
     }).catch(function (err) {
       el.discoverBtn.disabled = false;
-      window.alert("Could not start discovery: " + err.message);
+      handleWriteError(err, "Could not start discovery");
     });
   }
 
@@ -479,7 +782,7 @@
     if (button) { button.disabled = true; }
     api("/api/printers/" + encodeURIComponent(ip) + "/refresh", { method: "POST" })
       .then(load)
-      .catch(function (err) { window.alert("Refresh failed: " + err.message); })
+      .catch(function (err) { handleWriteError(err, "Refresh failed"); })
       .then(function () { if (button) button.disabled = false; });
   }
 
@@ -506,14 +809,26 @@
     el.discoverBtn = $("discover");
     el.viewCards = $("view-cards");
     el.viewTable = $("view-table");
+    el.account = $("account");
+    el.subnetList = $("subnet-list");
+    el.excludeList = $("exclude-list");
+    el.subnetCount = $("subnet-count");
+    el.subnetError = $("subnet-error");
+    el.subnetFootnote = $("subnet-footnote");
+    el.subnetSummary = $("subnet-summary");
 
     el.discoverBtn.addEventListener("click", startDiscovery);
     $("poll-now").addEventListener("click", function () {
       api("/api/poll", { method: "POST" }).then(function () {
         setTimeout(load, 1500);
-      });
+      }).catch(function (err) { handleWriteError(err, "Could not refresh"); });
     });
     $("add-printer").addEventListener("click", function () { $("add-dialog").showModal(); });
+    $("edit-subnets").addEventListener("click", openSubnets);
+    if (el.subnetSummary) el.subnetSummary.addEventListener("click", openSubnets);
+    wireSubnetDialog();
+    wireSetupDialog();
+    renderAccount();
 
     $("search").addEventListener("input", function (event) {
       state.query = event.target.value;
@@ -537,6 +852,8 @@
         if (action === "refresh") { refreshOne(act.getAttribute("data-ip"), act); return; }
         if (action === "discover") { startDiscovery(); return; }
         if (action === "add") { $("add-dialog").showModal(); return; }
+        if (action === "edit-subnets") { openSubnets(); return; }
+        if (action === "setup-account") { $("setup-dialog").showModal(); return; }
         if (action === "cancel-discovery") {
           api("/api/discover/cancel", { method: "POST" });
           return;
@@ -556,8 +873,17 @@
 
     el.discovery.addEventListener("click", function (event) {
       if (event.target.closest('[data-act="cancel-discovery"]')) {
-        api("/api/discover/cancel", { method: "POST" });
+        api("/api/discover/cancel", { method: "POST" })
+          .catch(function (err) { handleWriteError(err, "Could not stop the sweep"); });
       }
+    });
+
+    /* The setup and autodetect notices sit above the grid, outside el.main. */
+    document.querySelector(".wrap").addEventListener("click", function (event) {
+      var act = event.target.closest('[data-act="edit-subnets"], [data-act="setup-account"]');
+      if (!act) return;
+      if (act.getAttribute("data-act") === "edit-subnets") openSubnets();
+      else $("setup-dialog").showModal();
     });
 
     var addForm = $("add-form");
@@ -583,7 +909,7 @@
         }
         return load();
       }).catch(function (err) {
-        window.alert("Could not add printer: " + err.message);
+        handleWriteError(err, "Could not add printer");
       }).then(function () { submit.disabled = false; });
     });
 

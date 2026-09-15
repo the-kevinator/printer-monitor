@@ -7,7 +7,10 @@
   <link rel="stylesheet" href="{{ base }}/static/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='20'>🖨️</text></svg>">
 </head>
-<body data-base="{{ base }}">
+<body data-base="{{ base }}" data-csrf="{{ csrf_token }}"
+      data-signed-in="{{ 'true' if auth.signed_in else 'false' }}"
+      data-username="{{ auth.username or '' }}"
+      data-unconfigured="{{ 'true' if auth.unconfigured else 'false' }}">
 
 <header class="topbar">
   <div class="topbar-inner">
@@ -18,7 +21,10 @@
         <path d="M6 16h12v5H6z"/>
       </svg>
       <h1>Printer Monitor</h1>
-      <span class="sub">{{ subnets | join(', ') if subnets else 'no subnets configured' }}</span>
+      <button class="sub sub-link" type="button" id="subnet-summary"
+              title="Manage the ranges the discovery sweep covers">{{
+        subnets | join(', ') if subnets else 'no subnets configured'
+      }}</button>
     </div>
     <div class="topbar-actions">
       <button class="btn btn-primary" id="discover" type="button">
@@ -36,11 +42,39 @@
         Refresh all
       </button>
       <button class="btn" id="add-printer" type="button">Add by IP</button>
+      <button class="btn" id="edit-subnets" type="button">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="2.6" width="12" height="4" rx="1"/>
+          <rect x="2" y="9.4" width="12" height="4" rx="1"/>
+          <path d="M4.4 4.6h.01"/><path d="M4.4 11.4h.01"/>
+        </svg>
+        Subnets
+      </button>
+      <span class="topbar-sep" aria-hidden="true"></span>
+      <div class="account" id="account"></div>
     </div>
   </div>
 </header>
 
 <div class="wrap">
+
+  {% if auth.unconfigured %}
+  <div class="notice is-warn" id="setup-banner">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M8 2.2l6 11.3H2z"/><path d="M8 6.6v3.1"/><path d="M8 11.8h.01"/>
+    </svg>
+    <div style="flex:1">
+      <strong>Anyone can change this dashboard.</strong>
+      No account has been created yet, so subnets, discovery and the printer
+      list are open to everyone who can reach this page.
+    </div>
+    <button class="btn btn-sm btn-primary" type="button" data-act="setup-account">
+      Create an account
+    </button>
+  </div>
+  {% endif %}
 
   {% if config_problems %}
   <div class="notice is-warn">
@@ -64,9 +98,10 @@
       <circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><path d="M8 4.8h.01"/>
     </svg>
     <div>
-      No <code>subnets</code> were configured, so <strong>{{ subnets | join(', ') }}</strong>
-      was guessed from this server's own address. Set the ranges you want to scan in
-      <code>{{ config_path or 'config.json' }}</code> to cover every printer VLAN.
+      No subnets were configured, so <strong>{{ subnets | join(', ') }}</strong>
+      was guessed from this server's own address.
+      <button class="linkish" type="button" data-act="edit-subnets">Set the ranges to scan</button>
+      so every printer VLAN is covered.
     </div>
   </div>
   {% endif %}
@@ -121,6 +156,77 @@
     <div class="row">
       <button class="btn" type="button" id="add-cancel">Cancel</button>
       <button class="btn btn-primary" type="submit">Add printer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="subnet-dialog" class="dialog-wide">
+  <h2>Subnets to scan</h2>
+  <div class="dialog-body">
+    <p class="hint">
+      Discovery sweeps every address in these ranges looking for printers that
+      answer SNMP. Changes are saved immediately and survive a restart.
+    </p>
+
+    <div id="subnet-error" class="signin-error" role="alert" hidden></div>
+
+    <section class="subnet-section">
+      <h3>Ranges<span class="count" id="subnet-count"></span></h3>
+      <div id="subnet-list" class="subnet-list"></div>
+      <form id="subnet-add" class="subnet-add">
+        <input type="text" id="subnet-cidr" required autocomplete="off"
+               spellcheck="false" placeholder="10.10.20.0/24" aria-label="Network range">
+        <input type="text" id="subnet-label" autocomplete="off"
+               placeholder="Label (optional)" aria-label="Label">
+        <button class="btn btn-primary" type="submit">Add</button>
+      </form>
+    </section>
+
+    <section class="subnet-section">
+      <h3>Never scan</h3>
+      <p class="hint">
+        Addresses inside the ranges above that should be left alone &mdash; a
+        gateway, a firewall, anything that alerts on an SNMP probe.
+      </p>
+      <div id="exclude-list" class="subnet-list"></div>
+      <form id="exclude-add" class="subnet-add">
+        <input type="text" id="exclude-cidr" required autocomplete="off"
+               spellcheck="false" placeholder="10.10.20.1" aria-label="Address to exclude">
+        <input type="text" id="exclude-label" autocomplete="off"
+               placeholder="Label (optional)" aria-label="Label">
+        <button class="btn" type="submit">Add</button>
+      </form>
+    </section>
+
+    <p class="meta-note" id="subnet-footnote"></p>
+  </div>
+  <div class="row dialog-foot">
+    <button class="btn" type="button" id="subnet-close">Done</button>
+  </div>
+</dialog>
+
+<dialog id="setup-dialog">
+  <h2>Create the first account</h2>
+  <form id="setup-form">
+    <p class="hint">
+      This account can change subnets, run discovery and edit the printer list.
+      Viewing the dashboard stays open to everyone.
+    </p>
+    <div id="setup-error" class="signin-error" role="alert" hidden></div>
+    <label>Username
+      <input type="text" id="setup-username" required autocomplete="username"
+             spellcheck="false" autocapitalize="none">
+    </label>
+    <label>Password <span class="hint">(at least 10 characters)</span>
+      <input type="password" id="setup-password" required autocomplete="new-password"
+             minlength="10">
+    </label>
+    <label>Confirm password
+      <input type="password" id="setup-password2" required autocomplete="new-password">
+    </label>
+    <div class="row">
+      <button class="btn" type="button" id="setup-cancel">Cancel</button>
+      <button class="btn btn-primary" type="submit">Create account</button>
     </div>
   </form>
 </dialog>
