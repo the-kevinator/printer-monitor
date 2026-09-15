@@ -1,0 +1,10 @@
+# Printer Monitor runtime dependencies.
+# SNMP is implemented in app/snmp.py against the standard library, so there is
+# deliberately no pysnmp here -- everything below installs as a pure wheel on
+# Windows with no compiler.
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+jinja2==3.1.6
+
+# Development / test only:
+#   pip install pytest httpx

@@ -1,0 +1,47 @@
+{
+  "//": "Copy to config.json and edit. Every key is optional.",
+
+  "//subnets": "CIDR ranges to sweep. Add one per printer VLAN. If omitted, the server's own /24 is guessed.",
+  "subnets": ["10.10.20.0/24", "10.10.30.0/24"],
+
+  "//exclude_ips": "Addresses or ranges never to probe (gateways, sensitive hosts).",
+  "exclude_ips": ["10.10.20.1", "10.10.20.240/28"],
+
+  "//manual_printers": "Printers outside the swept ranges; always monitored.",
+  "manual_printers": [],
+
+  "//community": "SNMP v2c read community. 'public' is the factory default on most printers.",
+  "community": "public",
+
+  "//communities": "Extra communities to try, for a mixed fleet.",
+  "communities": [],
+
+  "snmp_port": 161,
+  "snmp_timeout": 1.5,
+  "snmp_retries": 1,
+
+  "//discovery_workers": "Parallel probes during a sweep. 64 scans a /24 in a few seconds.",
+  "discovery_workers": 64,
+  "poll_workers": 16,
+
+  "//poll_interval_seconds": "How often to re-read toner and status. Minimum 30.",
+  "poll_interval_seconds": 300,
+
+  "//discovery_interval_seconds": "How often to re-sweep for new printers. 0 disables automatic re-sweeps.",
+  "discovery_interval_seconds": 3600,
+
+  "auto_discover_on_start": true,
+
+  "//low_toner_threshold": "Percent at or below which a supply counts as low (amber).",
+  "low_toner_threshold": 20,
+
+  "//web_probe_ports": "TCP ports checked to find each printer's embedded web interface.",
+  "web_probe_ports": [443, 80, 8443, 8080],
+  "web_probe_timeout": 0.6,
+
+  "//data_dir": "Where printers.json is written. The IIS app pool identity needs write access here.",
+  "data_dir": "C:\\inetpub\\printer-monitor\\data",
+
+  "//poller_enabled": "Set false to serve the dashboard with no background SNMP traffic.",
+  "poller_enabled": true
+}

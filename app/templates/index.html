@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Printer Monitor</title>
+  <link rel="stylesheet" href="{{ base }}/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='20'>🖨️</text></svg>">
+</head>
+<body data-base="{{ base }}">
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="7" rx="2"/>
+        <path d="M6 16h12v5H6z"/>
+      </svg>
+      <h1>Printer Monitor</h1>
+      <span class="sub">{{ subnets | join(', ') if subnets else 'no subnets configured' }}</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-primary" id="discover" type="button">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.6"/><path d="M10.4 10.4L14 14"/>
+        </svg>
+        Discover
+      </button>
+      <button class="btn" id="poll-now" type="button">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 8a6 6 0 11-1.8-4.3"/><path d="M14 2v3.6h-3.6"/>
+        </svg>
+        Refresh all
+      </button>
+      <button class="btn" id="add-printer" type="button">Add by IP</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  {% if config_problems %}
+  <div class="notice is-warn">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M8 2.2l6 11.3H2z"/><path d="M8 6.6v3.1"/><path d="M8 11.8h.01"/>
+    </svg>
+    <div>
+      <strong>Check the configuration.</strong>
+      <ul style="margin:6px 0 0; padding-left:18px">
+        {% for problem in config_problems %}<li>{{ problem }}</li>{% endfor %}
+      </ul>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if subnets_autodetected %}
+  <div class="notice">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+         stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><path d="M8 4.8h.01"/>
+    </svg>
+    <div>
+      No <code>subnets</code> were configured, so <strong>{{ subnets | join(', ') }}</strong>
+      was guessed from this server's own address. Set the ranges you want to scan in
+      <code>{{ config_path or 'config.json' }}</code> to cover every printer VLAN.
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="notice" id="discovery" hidden></div>
+
+  <div class="toolbar">
+    <div class="search">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+           stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.6"/><path d="M10.4 10.4L14 14"/>
+      </svg>
+      <input type="search" id="search" placeholder="Search name, model, IP, location…"
+             aria-label="Search printers">
+    </div>
+    <span class="meta-note" id="count"></span>
+    <span class="spacer"></span>
+    <div class="seg" role="group" aria-label="View">
+      <button type="button" id="view-cards" aria-pressed="true">Cards</button>
+      <button type="button" id="view-table" aria-pressed="false">Table</button>
+    </div>
+  </div>
+
+  <main id="main"></main>
+
+  <p class="meta-note" style="margin-top:22px">
+    Toner bars show severity: blue is fine, amber is at or below
+    {{ low_threshold }}%, red is empty. Printers are polled every
+    {{ (poll_interval / 60) | round(1) }} min. Printer Monitor v{{ version }}.
+  </p>
+</div>
+
+<dialog id="add-dialog">
+  <h2>Add a printer</h2>
+  <form id="add-form">
+    <label>IP address
+      <input type="text" id="add-ip" required placeholder="10.20.30.40"
+             inputmode="numeric" autocomplete="off">
+    </label>
+    <label>Name <span class="hint">(optional, overrides the device name)</span>
+      <input type="text" id="add-label" placeholder="Accounting MFP" autocomplete="off">
+    </label>
+    <label>SNMP community <span class="hint">(optional, defaults to the configured one)</span>
+      <input type="text" id="add-community" placeholder="public" autocomplete="off">
+    </label>
+    <p class="hint" style="margin:0">
+      Use this for printers on a subnet the sweep does not cover. It is polled
+      like any discovered printer.
+    </p>
+    <div class="row">
+      <button class="btn" type="button" id="add-cancel">Cancel</button>
+      <button class="btn btn-primary" type="submit">Add printer</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="{{ base }}/static/app.js"></script>
+</body>
+</html>
