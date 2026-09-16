@@ -756,6 +756,35 @@ dialog .hint { font-size: 12px; color: var(--ink-muted); }
 }
 .signin-error svg { flex: none; color: var(--critical); }
 
+/* ---------------------------------------------------------- accounts editor */
+
+/* Mirrors .signin-error, in the affirmative: adding or removing an account is
+   a change worth confirming, and an alert() for it would be heavy-handed. */
+.account-ok {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--good) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--good) 38%, transparent);
+  color: var(--ink-primary);
+  font-size: 12.5px;
+}
+
+.account-badge {
+  flex: none;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
 /* ------------------------------------------------------------ subnet editor */
 
 dialog.dialog-wide { max-width: 560px; }

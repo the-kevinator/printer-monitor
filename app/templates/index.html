@@ -51,6 +51,16 @@
         </svg>
         Subnets
       </button>
+      <button class="btn" id="edit-accounts" type="button" hidden>
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="6" cy="5" r="2.6"/>
+          <path d="M1.6 13.4c0-2.4 2-4 4.4-4s4.4 1.6 4.4 4"/>
+          <path d="M11 3.2a2.4 2.4 0 010 4.4"/>
+          <path d="M12.4 9.8c1.3.5 2 1.8 2 3.6"/>
+        </svg>
+        Accounts
+      </button>
       <span class="topbar-sep" aria-hidden="true"></span>
       <div class="account" id="account"></div>
     </div>
@@ -202,6 +212,63 @@
   </div>
   <div class="row dialog-foot">
     <button class="btn" type="button" id="subnet-close">Done</button>
+  </div>
+</dialog>
+
+<dialog id="accounts-dialog" class="dialog-wide">
+  <h2>Accounts</h2>
+  <div class="dialog-body">
+    <p class="hint">
+      These accounts can change subnets, run discovery and edit the printer
+      list. Viewing the dashboard stays open to everyone who can reach it.
+    </p>
+
+    <div id="account-error" class="signin-error" role="alert" hidden></div>
+    <div id="account-ok" class="account-ok" role="status" hidden></div>
+
+    <section class="subnet-section">
+      <h3>Who can make changes<span class="count" id="account-count"></span></h3>
+      <div id="account-list" class="subnet-list"></div>
+      <form id="account-add" class="subnet-add">
+        <input type="text" id="account-username" required autocomplete="off"
+               spellcheck="false" autocapitalize="none" placeholder="username"
+               aria-label="New username" maxlength="64">
+        <input type="password" id="account-password" required
+               autocomplete="new-password" minlength="10"
+               placeholder="password, 10+ characters" aria-label="Password for the new account">
+        <button class="btn btn-primary" type="submit">Add</button>
+      </form>
+      <p class="hint" style="margin:0 18px">
+        Usernames are lower-cased, and may contain letters, digits, dot, dash,
+        underscore and&nbsp;@.
+      </p>
+    </section>
+
+    <section class="subnet-section">
+      <h3>Your password</h3>
+      <form id="account-pw-form">
+        <label>Current password
+          <input type="password" id="pw-current" required autocomplete="current-password">
+        </label>
+        <label>New password <span class="hint">(at least 10 characters)</span>
+          <input type="password" id="pw-new" required autocomplete="new-password" minlength="10">
+        </label>
+        <label>Confirm new password
+          <input type="password" id="pw-confirm" required autocomplete="new-password">
+        </label>
+        <p class="hint" style="margin:0">
+          This changes your own password only. To reset someone else's, run
+          <code class="mono">manage.py user passwd &lt;name&gt;</code> on the
+          server, then restart the service.
+        </p>
+        <div class="row">
+          <button class="btn btn-primary" type="submit">Change my password</button>
+        </div>
+      </form>
+    </section>
+  </div>
+  <div class="row dialog-foot">
+    <button class="btn" type="button" id="account-close">Done</button>
   </div>
 </dialog>
 

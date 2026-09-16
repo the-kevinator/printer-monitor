@@ -16,6 +16,7 @@
       unconfigured: DATA.unconfigured === "true"
     },
     subnets: null,          // the /api/subnets payload, once loaded
+    accounts: null,         // the /api/account payload, once loaded
     printers: [],
     summary: null,
     poller: null,
@@ -718,6 +719,9 @@
 
   function renderAccount() {
     if (!el.account) return;
+    /* Managing accounts needs a session, and the list of who can sign in is
+       not something to advertise to anonymous viewers. */
+    if (el.accountsBtn) el.accountsBtn.hidden = !state.auth.signedIn;
     if (state.auth.unconfigured) {
       el.account.innerHTML =
         '<button class="btn btn-sm" type="button" data-act="setup-account">Set up login</button>';
@@ -764,6 +768,170 @@
     $("setup-cancel").addEventListener("click", function () {
       $("setup-dialog").close();
     });
+  }
+
+  // ----------------------------------------------------- accounts manager
+
+  /* The server refuses to delete the last account, because that would drop the
+     dashboard back to open-to-everyone. Reflect that here rather than offering
+     a button whose only outcome is an error. */
+  function accountRow(user, isOnly, isSelf) {
+    var meta = ["last sign-in " + relTime(user.last_login)];
+    if (isOnly) meta.push("the only account");
+
+    var remove = isOnly ? "" :
+      '<button class="btn btn-sm btn-danger" type="button" data-acct-act="delete" ' +
+        'data-username="' + esc(user.username) + '" title="Remove this account">' +
+        '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3.4 3.4l9.2 9.2"/><path d="M12.6 3.4l-9.2 9.2"/></svg>' +
+        '<span class="sr-only">Remove ' + esc(user.username) + "</span>" +
+      "</button>";
+
+    return '<div class="subnet-row" data-username="' + esc(user.username) + '">' +
+      '<div class="subnet-main">' +
+        '<span class="subnet-cidr mono">' + esc(user.username) + "</span>" +
+        (isSelf ? '<span class="account-badge">you</span>' : "") +
+        '<span class="subnet-meta">' + esc(meta.join(" \u00b7 ")) + "</span>" +
+      "</div>" +
+      remove +
+      "</div>";
+  }
+
+  function renderAccounts() {
+    var data = state.accounts;
+    if (!data) return;
+    var users = data.users || [];
+    var only = users.length === 1;
+
+    el.accountList.innerHTML = users.length
+      ? users.map(function (u) {
+          return accountRow(u, only, u.username === state.auth.username);
+        }).join("")
+      : '<p class="meta-note">No accounts yet.</p>';
+
+    el.accountCount.textContent = users.length
+      ? users.length + (users.length === 1 ? " account" : " accounts")
+      : "";
+  }
+
+  function accountError(message) {
+    el.accountOk.hidden = true;
+    if (!message) {
+      el.accountError.hidden = true;
+      el.accountError.textContent = "";
+      return;
+    }
+    el.accountError.hidden = false;
+    el.accountError.textContent = message;
+  }
+
+  function accountOk(message) {
+    el.accountError.hidden = true;
+    el.accountOk.hidden = false;
+    el.accountOk.textContent = message;
+  }
+
+  function loadAccounts() {
+    return api("/api/account").then(function (data) {
+      state.accounts = data;
+      renderAccounts();
+    });
+  }
+
+  function openAccounts() {
+    accountError(null);
+    loadAccounts().then(function () {
+      $("accounts-dialog").showModal();
+    }).catch(function (err) {
+      window.alert("Could not load the account list: " + err.message);
+    });
+  }
+
+  function wireAccountDialog() {
+    var dialog = $("accounts-dialog");
+    if (!dialog) return;
+
+    dialog.addEventListener("click", function (event) {
+      var target = event.target.closest("[data-acct-act]");
+      if (!target || target.getAttribute("data-acct-act") !== "delete") return;
+      var username = target.getAttribute("data-username");
+      var isSelf = username === state.auth.username;
+      var warning = isSelf
+        ? "Remove your own account, " + username + "?\n\n" +
+          "You will be signed out immediately and will need another " +
+          "account's password to make changes again."
+        : "Remove the account " + username + "?\n\n" +
+          "They will be signed out and will no longer be able to change anything.";
+      if (!window.confirm(warning)) return;
+
+      target.disabled = true;
+      api("/api/account/users/" + encodeURIComponent(username), { method: "DELETE" })
+        .then(function () {
+          /* Deleting yourself invalidates the session this page is holding, so
+             a reload is the only honest next state. */
+          if (isSelf) { window.location.reload(); return; }
+          accountOk("Removed " + username + ".");
+          return loadAccounts();
+        })
+        .catch(function (err) {
+          target.disabled = false;
+          if (err.status === 401) { handleWriteError(err, ""); return; }
+          accountError(err.message);
+        });
+    });
+
+    var addForm = $("account-add");
+    addForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var nameInput = $("account-username");
+      var pwInput = $("account-password");
+      var name = nameInput.value.trim();
+      if (!name) return;
+      var submit = addForm.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      api("/api/account/users", {
+        method: "POST",
+        body: JSON.stringify({ username: name, password: pwInput.value })
+      }).then(function (result) {
+        nameInput.value = "";
+        pwInput.value = "";
+        accountOk("Added " + ((result.user && result.user.username) || name) + ".");
+        nameInput.focus();
+        return loadAccounts();
+      }).catch(function (err) {
+        if (err.status === 401) { handleWriteError(err, ""); return; }
+        accountError(err.message);
+      }).then(function () { submit.disabled = false; });
+    });
+
+    var pwForm = $("account-pw-form");
+    pwForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var current = $("pw-current");
+      var next = $("pw-new");
+      var confirm = $("pw-confirm");
+      if (next.value !== confirm.value) {
+        accountError("The two new passwords do not match.");
+        return;
+      }
+      var submit = pwForm.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      api("/api/account/password", {
+        method: "POST",
+        body: JSON.stringify({
+          current_password: current.value, new_password: next.value
+        })
+      }).then(function () {
+        pwForm.reset();
+        /* The server re-issues the session cookie, so we stay signed in. */
+        accountOk("Your password has been changed. Other sessions signed out.");
+        return loadAccounts();
+      }).catch(function (err) {
+        if (err.status === 401) { handleWriteError(err, ""); return; }
+        accountError(err.message);
+      }).then(function () { submit.disabled = false; });
+    });
+
+    $("account-close").addEventListener("click", function () { dialog.close(); });
   }
 
   // -------------------------------------------------------------- actions
@@ -816,6 +984,11 @@
     el.subnetError = $("subnet-error");
     el.subnetFootnote = $("subnet-footnote");
     el.subnetSummary = $("subnet-summary");
+    el.accountsBtn = $("edit-accounts");
+    el.accountList = $("account-list");
+    el.accountCount = $("account-count");
+    el.accountError = $("account-error");
+    el.accountOk = $("account-ok");
 
     el.discoverBtn.addEventListener("click", startDiscovery);
     $("poll-now").addEventListener("click", function () {
@@ -828,6 +1001,8 @@
     if (el.subnetSummary) el.subnetSummary.addEventListener("click", openSubnets);
     wireSubnetDialog();
     wireSetupDialog();
+    wireAccountDialog();
+    if (el.accountsBtn) el.accountsBtn.addEventListener("click", openAccounts);
     renderAccount();
 
     $("search").addEventListener("input", function (event) {
