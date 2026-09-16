@@ -52,17 +52,129 @@ just that one, without touching a config file or restarting:
 
 ## Requirements
 
-- **Windows Server with IIS** (this runs equally well on Windows 10/11 with IIS).
-- **Python 3.11 or newer**, installed for all users.
-- **[HttpPlatformHandler 1.2](https://www.iis.net/downloads/microsoft/httpplatformhandler)** —
-  the IIS module that lets IIS host a Python process.
+- **Windows Server** (this runs equally well on Windows 10/11).
+- **Python 3.11 or newer**, installed for all users. "For all users" matters: a
+  service runs as a background account that cannot see a per-user install.
+- **[NSSM](https://nssm.cc/download)** — a single `nssm.exe`, no installer, used
+  to run the app as a Windows service. This is the recommended deployment.
+- Only for the IIS route below:
+  **[HttpPlatformHandler 1.2](https://www.iis.net/downloads/microsoft/httpplatformhandler)**,
+  the IIS module that lets IIS host a Python process. Its last release was 2015
+  and it is unverified on Server 2025.
 - **SNMP v1/v2c enabled on your printers** with a read community string. This is
   on by default with the community `public` on most HP, Canon, Brother, Xerox,
   Lexmark, Kyocera and Ricoh network printers. It is how toner levels are read;
   there is no other vendor-neutral way to get them.
 - UDP/161 open from the web server to the printer VLANs.
 
-## Install on IIS
+## Install as a Windows service (recommended)
+
+This is the simplest deployment and the one to reach for by default. The app is
+a single long-running process; a service starts it at boot, restarts it if it
+dies, and never recycles it. No IIS, no handler module, no app pool.
+
+The background poller runs **inside** the app process, which is why a service
+suits this app better than IIS: IIS exists to shut idle processes down, and
+hosting under it means disabling idle timeout, disabling recycling and forcing
+AlwaysRunning just to prevent that. A service has none of that to argue with.
+
+1. **Copy the app** to the server, e.g. `C:\inetpub\printer-monitor`.
+
+2. **Create the two directories the app writes to.** Neither is in the repo
+   (both are gitignored), so a fresh clone does not have them:
+
+   ```
+   mkdir C:\inetpub\printer-monitor\data
+   mkdir C:\inetpub\printer-monitor\logs
+   ```
+
+   `logs` matters more than it looks: the service writes its stdout and stderr
+   there, so without it a failing service cannot tell you why it failed.
+
+3. **Create the virtual environment and install the dependencies:**
+
+   ```
+   cd C:\inetpub\printer-monitor
+   C:\Python312\python.exe -m venv .venv
+   .venv\Scripts\python.exe -m pip install -r requirements.txt
+   ```
+
+4. **Create `config.json`** from `config.example.json` and point `data_dir` at
+   the `data` directory. See [Configuration](#configuration).
+
+5. **Verify discovery before involving the service**, so errors land on your
+   screen rather than in a log:
+
+   ```
+   .venv\Scripts\python.exe manage.py config
+   .venv\Scripts\python.exe manage.py scan
+   ```
+
+6. **Free port 80 if IIS is installed.** Only one process can bind it, and IIS
+   claims it through HTTP.SYS:
+
+   ```powershell
+   Stop-Service W3SVC -Force
+   Set-Service W3SVC -StartupType Disabled
+   netstat -ano | findstr ":80 "   # expect no output
+   ```
+
+   If the box hosts other IIS sites, do not disable W3SVC — remove just the
+   port 80 binding from the unused site, or run this app on another port.
+
+7. **Install the service** with [NSSM](https://nssm.cc/download), as
+   Administrator:
+
+   ```
+   C:\Tools\nssm.exe install PrinterMonitor "C:\inetpub\printer-monitor\.venv\Scripts\python.exe" "manage.py serve --host 0.0.0.0 --port 80"
+   C:\Tools\nssm.exe set PrinterMonitor AppDirectory "C:\inetpub\printer-monitor"
+   C:\Tools\nssm.exe set PrinterMonitor AppEnvironmentExtra "PRINTER_MONITOR_CONFIG=C:\inetpub\printer-monitor\config.json" "PYTHONUNBUFFERED=1"
+   C:\Tools\nssm.exe set PrinterMonitor AppStdout "C:\inetpub\printer-monitor\logs\service.log"
+   C:\Tools\nssm.exe set PrinterMonitor AppStderr "C:\inetpub\printer-monitor\logs\service.log"
+   C:\Tools\nssm.exe set PrinterMonitor Start SERVICE_AUTO_START
+   C:\Tools\nssm.exe start PrinterMonitor
+   ```
+
+   `--host 0.0.0.0` is load-bearing. `manage.py serve` defaults to
+   `--host 127.0.0.1`, which serves the loopback interface only — the app then
+   works in a browser on the server and from nowhere else.
+
+8. **Open the firewall:**
+
+   ```
+   netsh advfirewall firewall add rule name="Printer Monitor HTTP" dir=in action=allow protocol=TCP localport=80
+   ```
+
+9. **Confirm it is healthy:** `curl http://localhost/healthz` should report
+   `"status":"ok"` with `"poller_running":true`.
+
+### Running the service as a lower-privileged account
+
+NSSM defaults to LocalSystem, which is more privilege than the app needs. The
+`data` directory holds account password hashes and the cookie signing key, so
+reducing this is worth doing:
+
+```
+C:\Tools\nssm.exe set PrinterMonitor ObjectName "NT AUTHORITY\NetworkService"
+icacls "C:\inetpub\printer-monitor\data" /grant "NT AUTHORITY\NetworkService:(OI)(CI)M"
+icacls "C:\inetpub\printer-monitor\logs" /grant "NT AUTHORITY\NetworkService:(OI)(CI)M"
+C:\Tools\nssm.exe restart PrinterMonitor
+```
+
+Binding port 80 as NetworkService is permitted on Windows; if you moved the app
+to a port above 1024, nothing changes here.
+
+### Serving it under a hostname
+
+The app sets no host restrictions — there is no `TrustedHostMiddleware` — so an
+internal DNS A record pointing at the server is all a hostname needs. Session
+cookies set `secure` from the request scheme, so they work over plain HTTP on an
+internal network and switch to secure automatically behind TLS.
+
+Keep that record in **internal** DNS. The dashboard's read paths are open by
+design, and the inventory includes printer serial numbers and locations.
+
+## Install on IIS (alternative)
 
 1. **Copy the app** to the server, e.g. `C:\inetpub\printer-monitor`.
 
@@ -223,6 +335,13 @@ Viewing the dashboard is open to anyone who can reach it. Changing anything —
 subnets, discovery, adding or editing printers, refreshing a poll — requires a
 signed-in account.
 
+Day to day, manage accounts from the **Accounts** button in the dashboard
+toolbar: it lists who can make changes, adds and removes accounts, and changes
+your own password. It is only visible while signed in.
+
+The CLI does the same job and is the way in when nobody can sign in — a
+forgotten password, or resetting someone else's:
+
 ```bat
 .venv\Scripts\python.exe manage.py user add yourname
 .venv\Scripts\python.exe manage.py user list
@@ -245,11 +364,35 @@ Details worth knowing:
 - Changing a password immediately invalidates that user's existing sessions.
 - The last remaining account cannot be deleted, since that would silently
   reopen the dashboard to everyone.
-- There are no roles: every account can change everything.
+- There are no roles: every account can change everything — including
+  removing other accounts.
+- **A CLI change needs a restart to take effect.** Accounts are read into
+  memory once at startup, so `manage.py user ...` against a running service
+  edits `data/users.json` while the service keeps serving the old set. Restart
+  it (`nssm restart PrinterMonitor`) afterwards. Changes made through the
+  dashboard take effect immediately, because the running service makes them.
+- Resetting *another* account's password is CLI-only; the dashboard changes
+  your own password only.
 
 ## Troubleshooting
 
 Everything below is quicker from the console than through the browser.
+
+**It works on the server but from nowhere else.** Two independent causes, both
+worth checking in this order:
+
+1. The firewall. `netsh advfirewall firewall add rule name="Printer Monitor HTTP"
+   dir=in action=allow protocol=TCP localport=80`
+2. The bind address. `manage.py serve` defaults to `--host 127.0.0.1`, which
+   answers only on loopback. The service must pass `--host 0.0.0.0`. Confirm
+   what it is actually bound to with `netstat -ano | findstr ":80 "` — you want
+   `0.0.0.0:80`, not `127.0.0.1:80`.
+
+**The service will not start, or starts and stops.** Read
+`logs\service.log`. If that file does not exist, neither does the `logs`
+directory — it is gitignored, so a fresh clone lacks it, and the service cannot
+report the failure because the log is where the report would go. Create it and
+start again.
 
 **A printer does not appear.** Probe it directly:
 
@@ -388,7 +531,7 @@ monitor it. A host is treated as a printer only if something exists under
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt pytest httpx
-.venv/bin/python -m pytest              # 123 tests, no network needed
+.venv/bin/python -m pytest              # 203 tests, no network needed
 .venv/bin/python manage.py serve --reload
 ```
 
