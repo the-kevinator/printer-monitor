@@ -261,6 +261,26 @@ input:focus-visible, select:focus-visible, .btn:focus-visible, .tile:focus-visib
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+.sortbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-secondary);
+}
+.sortbar select {
+  width: auto;
+  padding: 7px 8px;
+}
+/* Square, so the arrow does not shift the toolbar when it flips. */
+.btn.sort-dir {
+  width: 34px;
+  padding: 7px 0;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+}
+
 .seg {
   display: inline-flex;
   border: 1px solid var(--ring);

@@ -5,6 +5,8 @@
   "use strict";
 
   var REFRESH_MS = 15000;
+  var SORT_KEY_STORE = "pm.sortKey";
+  var SORT_DIR_STORE = "pm.sortDir";
   /* Set by the server template; non-empty when the app is mounted under
      an IIS virtual application path such as "/printers". */
   var BASE = (document.body && document.body.dataset.base) || "";
@@ -368,6 +370,7 @@
 
   function render() {
     renderTiles();
+    renderSortControls();
 
     var rows = visiblePrinters();
     rows.sort(function (a, b) {
@@ -967,6 +970,48 @@
     render();
   }
 
+  /* Sorting is driven from the toolbar in both views, and additionally from
+     the table's own column headers; all three paths land here. */
+
+  function sortLabel(key) {
+    for (var i = 0; i < COLUMNS.length; i++) {
+      if (COLUMNS[i].key === key) return COLUMNS[i].label;
+    }
+    return key;
+  }
+
+  function setSort(key, dir) {
+    state.sortKey = key;
+    state.sortDir = dir < 0 ? -1 : 1;
+    try {
+      window.localStorage.setItem(SORT_KEY_STORE, state.sortKey);
+      window.localStorage.setItem(SORT_DIR_STORE, String(state.sortDir));
+    } catch (e) { /* ignore */ }
+    render();
+  }
+
+  /* A fresh column starts ascending; the current one reverses. */
+  function toggleSort(key) {
+    setSort(key, state.sortKey === key ? -state.sortDir : 1);
+  }
+
+  function renderSortControls() {
+    if (!el.sortKey) return;
+    if (!el.sortKey.options.length) {
+      el.sortKey.innerHTML = COLUMNS.map(function (c) {
+        return '<option value="' + esc(c.key) + '">' + esc(c.label) + "</option>";
+      }).join("");
+    }
+    el.sortKey.value = state.sortKey;
+    var ascending = state.sortDir > 0;
+    el.sortDir.textContent = ascending ? "\u25B2" : "\u25BC";
+    el.sortDir.setAttribute("aria-pressed", String(!ascending));
+    var title = (ascending ? "Ascending" : "Descending") + " by " +
+      sortLabel(state.sortKey).toLowerCase() + " \u2014 click to reverse";
+    el.sortDir.title = title;
+    el.sortDir.setAttribute("aria-label", title);
+  }
+
   // ------------------------------------------------------------------ init
 
   function wire() {
@@ -977,6 +1022,8 @@
     el.discoverBtn = $("discover");
     el.viewCards = $("view-cards");
     el.viewTable = $("view-table");
+    el.sortKey = $("sort-key");
+    el.sortDir = $("sort-dir");
     el.account = $("account");
     el.subnetList = $("subnet-list");
     el.excludeList = $("exclude-list");
@@ -1013,6 +1060,13 @@
     el.viewCards.addEventListener("click", function () { setView("cards"); });
     el.viewTable.addEventListener("click", function () { setView("table"); });
 
+    el.sortKey.addEventListener("change", function (event) {
+      setSort(event.target.value, state.sortDir);
+    });
+    el.sortDir.addEventListener("click", function () {
+      setSort(state.sortKey, -state.sortDir);
+    });
+
     el.tiles.addEventListener("click", function (event) {
       var tile = event.target.closest("[data-filter]");
       if (!tile) return;
@@ -1038,12 +1092,7 @@
         }
       }
       var th = event.target.closest("th[data-sort]");
-      if (th) {
-        var key = th.getAttribute("data-sort");
-        if (state.sortKey === key) state.sortDir = -state.sortDir;
-        else { state.sortKey = key; state.sortDir = 1; }
-        render();
-      }
+      if (th) toggleSort(th.getAttribute("data-sort"));
     });
 
     el.discovery.addEventListener("click", function (event) {
@@ -1093,6 +1142,12 @@
     try {
       var saved = window.localStorage.getItem("pm.view");
       if (saved === "table" || saved === "cards") state.view = saved;
+      var savedKey = window.localStorage.getItem(SORT_KEY_STORE);
+      var known = COLUMNS.some(function (c) { return c.key === savedKey; });
+      if (known) {
+        state.sortKey = savedKey;
+        state.sortDir = window.localStorage.getItem(SORT_DIR_STORE) === "-1" ? -1 : 1;
+      }
     } catch (e) { /* ignore */ }
     el.viewCards.setAttribute("aria-pressed", String(state.view === "cards"));
     el.viewTable.setAttribute("aria-pressed", String(state.view === "table"));
