@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="{{ base }}/static/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='20'>🖨️</text></svg>">
 </head>
-<body data-base="{{ base }}">
+<body data-base="{{ base }}" data-csrf="{{ csrf_token }}">
 
 {% set s = printer.summary %}
 {% set raw = printer.stats or {} %}
@@ -199,6 +199,39 @@
   var ip = data.ip;
   var BASE = document.body.dataset.base || "";
 
+  /* Every state-changing call has to echo the readable CSRF cookie back in a
+     header; without it the API answers 403 and a saved note goes nowhere. */
+  function csrfToken() {
+    var match = document.cookie.match(/(?:^|;\s*)pm_csrf=([^;]*)/);
+    return match ? decodeURIComponent(match[1]) : (document.body.dataset.csrf || "");
+  }
+
+  function write(path, options) {
+    options = options || {};
+    return fetch(BASE + path, Object.assign({}, options, {
+      headers: Object.assign({
+        "Content-Type": "application/json",
+        "X-PM-CSRF": csrfToken()
+      }, options.headers || {})
+    })).then(function (response) {
+      return response.json().catch(function () { return {}; }).then(function (body) {
+        if (!response.ok) {
+          var err = new Error(body.detail || response.status + " " + response.statusText);
+          err.status = response.status;
+          throw err;
+        }
+        return body;
+      });
+    });
+  }
+
+  /* A write refused for want of a session belongs on the login page, not in an
+     error message the person cannot act on. */
+  function signInInstead() {
+    window.location.href = BASE + "/login?next=" +
+      encodeURIComponent(window.location.pathname + window.location.search);
+  }
+
   var ICONS = {
     ok: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 4.5L6 12 2.5 8.5"/></svg>',
     warning: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.2l6 11.3H2z"/><path d="M8 6.6v3.1"/><path d="M8 11.8h.01"/></svg>',
@@ -292,35 +325,42 @@
   document.getElementById("refresh").addEventListener("click", function () {
     var btn = this;
     btn.disabled = true;
-    fetch(BASE + "/api/printers/" + encodeURIComponent(ip) + "/refresh", { method: "POST" })
+    write("/api/printers/" + encodeURIComponent(ip) + "/refresh", { method: "POST" })
       .then(function () { window.location.reload(); })
-      .catch(function () { btn.disabled = false; });
+      .catch(function (err) {
+        btn.disabled = false;
+        if (err.status === 401) return signInInstead();
+        window.alert("Could not poll " + ip + ": " + err.message);
+      });
   });
 
   document.getElementById("forget").addEventListener("click", function () {
     if (!window.confirm("Remove " + ip + " from the monitor? Discovery may find it again.")) return;
-    fetch(BASE + "/api/printers/" + encodeURIComponent(ip), { method: "DELETE" })
-      .then(function () { window.location.href = BASE + "/"; });
+    write("/api/printers/" + encodeURIComponent(ip), { method: "DELETE" })
+      .then(function () { window.location.href = BASE + "/"; })
+      .catch(function (err) {
+        if (err.status === 401) return signInInstead();
+        window.alert("Could not remove " + ip + ": " + err.message);
+      });
   });
 
   document.getElementById("edit-form").addEventListener("submit", function (event) {
     event.preventDefault();
     var note = document.getElementById("save-note");
     note.textContent = "Saving…";
-    fetch(BASE + "/api/printers/" + encodeURIComponent(ip), {
+    write("/api/printers/" + encodeURIComponent(ip), {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         label: document.getElementById("edit-label").value.trim() || null,
         notes: document.getElementById("edit-notes").value.trim() || null,
         community: document.getElementById("edit-community").value.trim() || null,
         enabled: document.getElementById("edit-enabled").checked
       })
-    }).then(function (response) {
-      if (!response.ok) throw new Error(response.statusText);
+    }).then(function () {
       note.textContent = "Saved.";
       setTimeout(function () { window.location.reload(); }, 600);
     }).catch(function (err) {
+      if (err.status === 401) return signInInstead();
       note.textContent = "Could not save: " + err.message;
     });
   });

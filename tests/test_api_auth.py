@@ -264,3 +264,39 @@ def test_the_login_page_will_not_redirect_off_site(secured):
     )
     assert response.status_code == 303
     assert response.headers["location"] == "/"
+
+
+# --------------------------------------------- the detail page's own writes
+
+
+def test_the_printer_page_carries_the_csrf_token(secured):
+    """
+    The detail page saves notes with fetch(), so it needs the token in the
+    document the same way the dashboard does. Shipping it without one made
+    every save fail with a bare "Forbidden".
+    """
+    secured.app_module.state.store.add_manual("10.10.20.41")
+    sign_in(secured)
+
+    page = secured.get("/printer/10.10.20.41")
+    assert page.status_code == 200
+    assert f'data-csrf="{secured.cookies.get("pm_csrf")}"' in page.text
+
+
+def test_saving_a_note_needs_the_token_the_page_was_given(secured):
+    secured.app_module.state.store.add_manual("10.10.20.41")
+    sign_in(secured)
+    secured.get("/printer/10.10.20.41")
+    token = secured.cookies.get("pm_csrf")
+
+    assert secured.patch(
+        "/api/printers/10.10.20.41", json={"notes": "behind reception"},
+    ).status_code == 403
+
+    saved = secured.patch(
+        "/api/printers/10.10.20.41",
+        json={"notes": "behind reception"},
+        headers={"X-PM-CSRF": token},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["notes"] == "behind reception"
