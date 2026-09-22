@@ -17,7 +17,7 @@ the first account gets created on a locked-down install.
 
     python manage.py subnets list
     python manage.py subnets add 10.10.30.0/24 --label "Floor 3"
-    python manage.py user add kmendez
+    python manage.py user add jdoe
 """
 
 from __future__ import annotations

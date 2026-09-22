@@ -4,7 +4,7 @@ A self-hosted web dashboard that finds the printers on your network by itself,
 links straight through to each one's own web interface, and shows toner levels,
 paper trays, page counts and error states for all of them on one page.
 
-Built to run on IIS on Windows Server. Python + FastAPI, and only three
+Runs as a Windows service on Windows Server. Python + FastAPI, and only three
 dependencies.
 
 ![The dashboard: stat tiles, then one card per printer with toner meters, alerts and a link to each printer's own web interface](docs/dashboard.png)
@@ -14,12 +14,12 @@ just that one, without touching a config file or restarting:
 
 ![The subnet editor: a list of ranges with checkboxes, labels and address counts, a never-scan list below it, and the total addresses per sweep](docs/subnets.png)
 
-<sub>Screenshots taken against a simulated fleet on a private range.</sub>
+<sub>Screenshots are taken against a simulated fleet on a private range &mdash; see [Screenshots](#screenshots).</sub>
 
 <details>
 <summary>Table view, per-printer detail and the sign-in page</summary>
 
-![Sortable table view](docs/dashboard-table.png)
+![Table view, sorted by printer name](docs/dashboard-table.png)
 
 ![Detail page for one printer](docs/printer-detail.png)
 
@@ -47,8 +47,12 @@ just that one, without touching a config file or restarting:
   device state, front-panel message, uptime, serial number, MAC, location.
 - **Error states** decoded from the printer's own alert bits: paper jams, doors
   open, empty trays, service required, and the rest.
-- Cards view, sortable table view, search, health filters, per-printer detail
-  pages, and a JSON API for anything else you want to build.
+- **Sort the fleet however you like.** Name, address, model, status, toner,
+  page count, location or last poll, ascending or descending, in both the card
+  and table views. The table's column headers sort too, and your choice is
+  remembered in the browser.
+- Cards view, table view, search, health filters, per-printer detail pages, and
+  a JSON API for anything else you want to build.
 
 ## Requirements
 
@@ -531,7 +535,7 @@ monitor it. A host is treated as a printer only if something exists under
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt pytest httpx
-.venv/bin/python -m pytest              # 203 tests, no network needed
+.venv/bin/python -m pytest              # 205 tests, no network needed
 .venv/bin/python manage.py serve --reload
 ```
 
@@ -544,3 +548,20 @@ end to end.
 
 `tests/test_poller.py` shows how to stand up that fake fleet if you want to
 drive the real dashboard against it.
+
+### Screenshots
+
+The images in `docs/` are taken against a throwaway instance seeded with an
+invented fleet, so nothing about a real network or a real account appears in
+them. To retake them after a UI change:
+
+```bash
+python tools/demo_fleet.py                       # seeds /tmp/printer-monitor
+export PRINTER_MONITOR_CONFIG=/tmp/printer-monitor/config.json
+python manage.py user add jdoe --password demo-password-for-shots
+python manage.py serve --port 8899 &
+python tools/screenshots.py                      # rewrites docs/*.png
+```
+
+`tools/screenshots.py` needs `playwright` and a Chromium (`pip install
+playwright && playwright install chromium`); nothing else in the project does.

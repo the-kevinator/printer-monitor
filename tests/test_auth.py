@@ -46,7 +46,7 @@ def test_a_malformed_hash_never_verifies(stored):
 
 
 def test_usernames_are_normalised_and_junk_refused():
-    assert normalise_username("  KMendez ") == "kmendez"
+    assert normalise_username("  JDoe ") == "jdoe"
     for bad in ["", "   ", "has space", "semi;colon", "x" * 65]:
         with pytest.raises(AuthError):
             normalise_username(bad)
@@ -68,43 +68,43 @@ def test_a_fresh_install_has_no_accounts(users):
 
 
 def test_add_persists_and_survives_a_reload(users, tmp_path):
-    users.add("kmendez", "a-long-enough-password")
+    users.add("jdoe", "a-long-enough-password")
 
     reopened = UserStore(tmp_path / "users.json")
     reopened.load()
     assert reopened.count() == 1
     assert not reopened.is_unconfigured
-    assert reopened.authenticate("kmendez", "a-long-enough-password")
+    assert reopened.authenticate("jdoe", "a-long-enough-password")
 
 
 def test_usernames_are_case_insensitive(users):
-    users.add("KMendez", "a-long-enough-password")
-    assert users.get("kmendez") is not None
+    users.add("JDoe", "a-long-enough-password")
+    assert users.get("jdoe") is not None
     with pytest.raises(AuthError, match="already exists"):
-        users.add("kmendez", "another-long-password")
+        users.add("jdoe", "another-long-password")
 
 
 def test_short_passwords_are_refused(users):
     with pytest.raises(AuthError, match="at least 10"):
-        users.add("kmendez", "short")
+        users.add("jdoe", "short")
 
 
 def test_authenticate_rejects_a_wrong_password_and_an_unknown_user(users):
-    users.add("kmendez", "a-long-enough-password")
+    users.add("jdoe", "a-long-enough-password")
     with pytest.raises(AuthError):
-        users.authenticate("kmendez", "wrong-password-here")
+        users.authenticate("jdoe", "wrong-password-here")
     with pytest.raises(AuthError):
         users.authenticate("nobody", "a-long-enough-password")
 
 
 def test_the_last_account_cannot_be_deleted(users):
     """Deleting it would silently reopen the dashboard to everyone."""
-    users.add("kmendez", "a-long-enough-password")
+    users.add("jdoe", "a-long-enough-password")
     with pytest.raises(AuthError, match="only account"):
-        users.delete("kmendez")
+        users.delete("jdoe")
 
     users.add("second", "a-long-enough-password")
-    assert users.delete("kmendez") is True
+    assert users.delete("jdoe") is True
     assert users.count() == 1
 
 
@@ -117,9 +117,9 @@ def sessions(tmp_path):
 
 
 def test_a_cookie_identifies_the_user_who_signed_in(users, sessions):
-    user = users.add("kmendez", "a-long-enough-password")
+    user = users.add("jdoe", "a-long-enough-password")
     token = sessions.issue(user)
-    assert sessions.verify(token, users).username == "kmendez"
+    assert sessions.verify(token, users).username == "jdoe"
 
 
 @pytest.mark.parametrize("mangle", [
@@ -131,19 +131,19 @@ def test_a_cookie_identifies_the_user_who_signed_in(users, sessions):
     lambda t: "AAAA." + t.split(".")[1],     # payload swapped
 ])
 def test_a_forged_or_damaged_cookie_is_rejected(users, sessions, mangle):
-    user = users.add("kmendez", "a-long-enough-password")
+    user = users.add("jdoe", "a-long-enough-password")
     assert sessions.verify(mangle(sessions.issue(user)), users) is None
 
 
 def test_a_cookie_signed_with_another_key_is_rejected(users, tmp_path):
-    user = users.add("kmendez", "a-long-enough-password")
+    user = users.add("jdoe", "a-long-enough-password")
     token = SessionManager(load_or_create_secret(tmp_path / "a")).issue(user)
     other = SessionManager(load_or_create_secret(tmp_path / "b"))
     assert other.verify(token, users) is None
 
 
 def test_a_cookie_expires(users, tmp_path, monkeypatch):
-    user = users.add("kmendez", "a-long-enough-password")
+    user = users.add("jdoe", "a-long-enough-password")
     manager = SessionManager(load_or_create_secret(tmp_path / "secret_key"), hours=1)
     real_now = time.time()
     token = manager.issue(user)
@@ -159,16 +159,16 @@ def test_changing_a_password_invalidates_existing_cookies(users, sessions):
     Sessions are stateless, so this is the mechanism that makes "change the
     password" actually eject whoever was signed in with the old one.
     """
-    user = users.add("kmendez", "a-long-enough-password")
+    user = users.add("jdoe", "a-long-enough-password")
     token = sessions.issue(user)
     assert sessions.verify(token, users) is not None
 
-    users.set_password("kmendez", "a-different-long-password")
+    users.set_password("jdoe", "a-different-long-password")
     assert sessions.verify(token, users) is None
 
 
 def test_deleting_a_user_invalidates_their_cookie(users, sessions):
-    users.add("kmendez", "a-long-enough-password")
+    users.add("jdoe", "a-long-enough-password")
     second = users.add("second", "a-long-enough-password")
     token = sessions.issue(second)
     users.delete("second")

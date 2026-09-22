@@ -48,13 +48,13 @@ def open_app(tmp_path):
 def secured(tmp_path):
     """An install with one account, signed out."""
     main = _build(tmp_path)
-    main.state.users.add("kmendez", PASSWORD)
+    main.state.users.add("jdoe", PASSWORD)
     with TestClient(main.app) as client:
         client.app_module = main
         yield client
 
 
-def sign_in(client, username="kmendez", password=PASSWORD):
+def sign_in(client, username="jdoe", password=PASSWORD):
     client.get("/")  # collect the CSRF cookie the form needs
     token = client.cookies.get("pm_csrf")
     response = client.post(
@@ -200,7 +200,7 @@ def test_reading_stays_open_to_everyone(secured):
 
 def test_signing_in_then_writing_works(secured):
     assert sign_in(secured).status_code == 303
-    assert secured.get("/api/printers").json()["auth"]["username"] == "kmendez"
+    assert secured.get("/api/printers").json()["auth"]["username"] == "jdoe"
 
     response = secured.post(
         "/api/subnets",
@@ -233,13 +233,13 @@ def test_the_first_account_can_be_claimed_from_the_browser(open_app):
     open_app.get("/")
     response = open_app.post(
         "/api/account/setup",
-        json={"username": "kmendez", "password": PASSWORD},
+        json={"username": "jdoe", "password": PASSWORD},
         headers={"X-PM-CSRF": open_app.cookies.get("pm_csrf")},
     )
     assert response.status_code == 201
     # ...and that same request signs them in, so they are not locked out of
     # the dashboard they just secured.
-    assert open_app.get("/api/printers").json()["auth"]["username"] == "kmendez"
+    assert open_app.get("/api/printers").json()["auth"]["username"] == "jdoe"
 
 
 def test_the_setup_route_closes_once_an_account_exists(secured):
@@ -258,7 +258,7 @@ def test_the_login_page_will_not_redirect_off_site(secured):
     token = secured.cookies.get("pm_csrf")
     response = secured.post(
         "/login",
-        data={"username": "kmendez", "password": PASSWORD,
+        data={"username": "jdoe", "password": PASSWORD,
               "csrf_token": token, "next": "https://evil.example/"},
         follow_redirects=False,
     )
