@@ -29,6 +29,8 @@ just that one, without touching a config file or restarting:
 
 ## What it does
 
+<sub>Current version: 1.5.0 — see [CHANGELOG.md](CHANGELOG.md) for what changed.</sub>
+
 - **Finds printers automatically.** Sweeps the subnets you configure over SNMP
   and keeps anything that exposes the standard Printer MIB. Switches, servers
   and UPSs that also answer SNMP are ignored.
@@ -52,8 +54,10 @@ just that one, without touching a config file or restarting:
   and table views. The table's column headers sort too, and your choice is
   remembered in the browser.
 - **Colour tags.** Give any printer one of nine colours from its detail page
-  — by floor, department, whoever looks after it — and it shows as a band on
-  its card and a dot in the table, with a filter to show one colour at a time.
+  and it shows as a band on its card and a dot in the table, with a filter to
+  show one colour at a time. Say what each colour means once, from **Tags** on
+  the dashboard ("Blue: 2nd floor"), and the description follows it into the
+  picker, the filter and both exports.
 - **Export to CSV or PDF.** Every printer with its notes, from the Export menu.
   The CSV carries every field for a spreadsheet; the PDF is a printable
   inventory, written without any extra library.
@@ -476,6 +480,8 @@ header once an account exists, and return `401` otherwise. Reads are open.
 | `POST` | `/logout` | Clear the session cookie |
 | `GET` | `/healthz` | Liveness, printer count, poller state, whether accounts exist |
 | `GET` | `/open/{ip}` | Redirect to that printer's web interface |
+| `GET` | `/api/tags` | The nine tag colours and what each one has been named |
+| `PUT` 🔒 | `/api/tags` | Name colours: `{"labels": {"blue": "2nd floor"}}`. `""` clears one; colours left out are unchanged |
 | `GET` | `/export/printers.csv` | Every printer and field, notes included, as a CSV download |
 | `GET` | `/export/printers.pdf` | The same inventory as a printable PDF |
 
@@ -545,7 +551,7 @@ monitor it. A host is treated as a printer only if something exists under
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt pytest httpx
-.venv/bin/python -m pytest              # 218 tests, no network needed
+.venv/bin/python -m pytest              # 223 tests, no network needed
 .venv/bin/python manage.py serve --reload
 ```
 
