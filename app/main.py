@@ -12,6 +12,7 @@ accounts were added, so upgrading an install cannot lock its admin out.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import ipaddress
 import logging
@@ -45,6 +46,7 @@ from . import export
 from .poller import PollerService
 from .store import PRINTER_COLORS, PrinterStore
 from .subnets import SubnetError, SubnetStore
+from .tags import TagError, TagStore
 
 log = logging.getLogger("printer_monitor")
 logging.basicConfig(
@@ -65,6 +67,7 @@ class AppState:
     subnets: SubnetStore
     users: UserStore
     sessions: SessionManager
+    tags: TagStore
 
     def __init__(self) -> None:
         self.settings = load_settings()
@@ -111,6 +114,9 @@ class AppState:
         self.poller = PollerService(
             self.settings, self.store, DiscoveryRunner(self.settings)
         )
+
+        self.tags = TagStore(self.settings.tags_file)
+        self.tags.load()
 
         self.users = UserStore(self.settings.users_file)
         self.users.load()
@@ -180,6 +186,25 @@ app = FastAPI(
 )
 
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
+
+
+def _asset_versions() -> dict[str, str]:
+    """
+    A short content hash per static file, appended to its URL as ?v=.
+
+    Without it a browser keeps the stylesheet it cached before an upgrade and
+    renders the new pages with old styles -- which is how the colour picker
+    first shipped as a row of identical radio buttons. Computed once at
+    startup; a deploy restarts the service anyway.
+    """
+    versions = {}
+    for path in (APP_DIR / "static").iterdir():
+        if path.is_file():
+            versions[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+    return versions
+
+
+templates.env.globals["asset_v"] = _asset_versions()
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 
 
@@ -392,6 +417,7 @@ async def dashboard(request: Request):
             "auth": _auth_payload(user),
             "csrf_token": csrf_token,
             "colors": list(PRINTER_COLORS),
+            "tags": state.tags.payload(),
         },
     )
     _issue_csrf(request, response, csrf_token)
@@ -491,6 +517,7 @@ async def printer_page(request: Request, ip: str):
             "auth": _auth_payload(current_user(request)),
             "csrf_token": csrf_token,
             "colors": list(PRINTER_COLORS),
+            "tags": state.tags.payload(),
         },
     )
     _issue_csrf(request, response, csrf_token)
@@ -539,6 +566,7 @@ async def list_printers(
         ]
     return {
         "printers": [_record_payload(r) for r in records],
+        "tags": state.tags.payload(),
         "summary": state.store.summary(),
         "poller": state.poller.status(),
         "server_time": time.time(),
@@ -623,6 +651,34 @@ async def refresh_printer(ip: str, _user: User | None = Depends(require_auth)):
 
 
 # ---------------------------------------------------------------------------
+# API -- colour tag descriptions
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/tags")
+async def list_tags():
+    return {"tags": state.tags.payload()}
+
+
+@app.put("/api/tags")
+async def update_tags(
+    payload: dict[str, Any] = Body(...),
+    _user: User | None = Depends(require_auth),
+):
+    """Name what colours mean: {"labels": {"blue": "2nd floor"}}. "" clears one."""
+    try:
+        state.tags.update(payload.get("labels"))
+    except TagError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"could not write {state.settings.tags_file}: {exc}",
+        )
+    return {"tags": state.tags.payload()}
+
+
+# ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
 
@@ -633,7 +689,7 @@ async def refresh_printer(ip: str, _user: User | None = Depends(require_auth)):
 @app.get("/export/printers.csv")
 async def export_csv():
     return Response(
-        content=export.to_csv(state.store.all()),
+        content=export.to_csv(state.store.all(), state.tags.labels()),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition":
@@ -645,7 +701,7 @@ async def export_csv():
 @app.get("/export/printers.pdf")
 async def export_pdf():
     return Response(
-        content=export.to_pdf(state.store.all(), version=VERSION),
+        content=export.to_pdf(state.store.all(), state.tags.labels(), version=VERSION),
         media_type="application/pdf",
         headers={
             "Content-Disposition":

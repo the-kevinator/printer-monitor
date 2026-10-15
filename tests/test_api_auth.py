@@ -204,6 +204,9 @@ def test_exports_are_open_but_tagging_a_printer_is_a_write(secured):
         assert secured.get(path).status_code == 200
     assert secured.patch("/api/printers/192.0.2.10",
                          json={"color": "blue"}).status_code == 401
+    assert secured.get("/api/tags").status_code == 200
+    assert secured.put("/api/tags",
+                       json={"labels": {"blue": "x"}}).status_code == 401
 
 
 def test_signing_in_then_writing_works(secured):

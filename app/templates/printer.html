@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ printer.display_name }} — Printer Monitor</title>
-  <script src="{{ base }}/static/theme.js"></script>
-  <link rel="stylesheet" href="{{ base }}/static/style.css">
+  <script src="{{ base }}/static/theme.js?v={{ asset_v['theme.js'] }}"></script>
+  <link rel="stylesheet" href="{{ base }}/static/style.css?v={{ asset_v['style.css'] }}">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='20'>🖨️</text></svg>">
 </head>
 <body data-base="{{ base }}" data-csrf="{{ csrf_token }}">
@@ -58,8 +58,8 @@
 
   <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px">
     <h2 style="margin:0;font-size:22px;letter-spacing:-0.02em">
-      {%- if printer.color in colors %}<span class="tag-dot tag-{{ printer.color }} tag-dot-lg"
-        title="{{ printer.color | capitalize }} tag"></span>{% endif -%}
+      {%- for t in tags if t.name == printer.color %}<span class="tag-dot tag-{{ t.name }} tag-dot-lg"
+        title="{{ t.name | capitalize }} tag{{ ': ' + t.label if t.label }}"></span>{% endfor -%}
       {{ printer.display_name }}</h2>
     <span id="status-pill"></span>
   </div>
@@ -184,16 +184,18 @@
                       placeholder="e.g. behind reception, key in the top drawer">{{ printer.notes or '' }}</textarea>
           </label>
           <fieldset class="swatches">
-            <legend>Color tag</legend>
-            <label class="swatch swatch-none" title="No color">
+            <legend>Color tag
+              <a class="swatches-edit" href="{{ base }}/#tags">Name the colors</a>
+            </legend>
+            <label class="swatch">
               <input type="radio" name="color" value=""{% if printer.color not in colors %} checked{% endif %}>
-              <span>None</span>
+              <span class="tag-dot tag-none"></span><span class="swatch-name">None</span>
             </label>
-            {%- for c in colors %}
-            <label class="swatch" title="{{ c | capitalize }}">
-              <input type="radio" name="color" value="{{ c }}"{% if printer.color == c %} checked{% endif %}>
-              <span class="tag-dot tag-{{ c }}"></span>
-              <span class="sr-only">{{ c | capitalize }}</span>
+            {%- for t in tags %}
+            <label class="swatch"{% if t.label %} title="{{ t.name | capitalize }}"{% endif %}>
+              <input type="radio" name="color" value="{{ t.name }}"{% if printer.color == t.name %} checked{% endif %}>
+              <span class="tag-dot tag-{{ t.name }}"></span>
+              <span class="swatch-name">{{ t.label or t.name | capitalize }}</span>
             </label>
             {%- endfor %}
           </fieldset>

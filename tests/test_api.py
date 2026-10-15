@@ -305,18 +305,18 @@ def test_urls_respect_an_iis_virtual_application_prefix(client):
     with TestClient(client.app_module.app, root_path="/printers") as prefixed:
         body = prefixed.get("/").text
         assert '<body data-base="/printers"' in body
-        assert 'href="/printers/static/style.css"' in body
-        assert 'src="/printers/static/app.js"' in body
+        assert 'href="/printers/static/style.css?v=' in body
+        assert 'src="/printers/static/app.js?v=' in body
 
         detail = prefixed.get("/printer/192.0.2.10").text
-        assert 'href="/printers/static/style.css"' in detail
+        assert 'href="/printers/static/style.css?v=' in detail
         assert 'href="/printers/"' in detail
 
 
 def test_urls_have_no_prefix_when_mounted_at_the_root(client):
     body = client.get("/").text
     assert '<body data-base=""' in body
-    assert 'href="/static/style.css"' in body
+    assert 'href="/static/style.css?v=' in body
 
 
 def test_web_url_must_be_http_or_https(client):
@@ -422,3 +422,59 @@ def test_pdf_export_is_a_pdf(client):
     assert "attachment" in response.headers["content-disposition"]
     assert response.content.startswith(b"%PDF-1.4")
     assert response.content.rstrip().endswith(b"%%EOF")
+
+
+# -- colour tag descriptions ------------------------------------------------
+
+
+def test_tags_can_be_named_and_cleared(client):
+    tags = {t["name"]: t for t in client.get("/api/tags").json()["tags"]}
+    assert list(tags)[:2] == ["red", "orange"]
+    assert tags["blue"]["label"] == ""
+
+    saved = client.put("/api/tags", json={"labels": {"blue": "  2nd   floor "}})
+    assert saved.status_code == 200
+    by_name = {t["name"]: t["label"] for t in saved.json()["tags"]}
+    assert by_name["blue"] == "2nd floor"  # whitespace tidied
+
+    # Naming one colour leaves the others alone; "" clears.
+    client.put("/api/tags", json={"labels": {"green": "Finance"}})
+    listed = {t["name"]: t["label"] for t in client.get("/api/printers").json()["tags"]}
+    assert listed["blue"] == "2nd floor" and listed["green"] == "Finance"
+    client.put("/api/tags", json={"labels": {"blue": "", "green": ""}})
+    assert all(not t["label"] for t in client.get("/api/tags").json()["tags"])
+
+
+def test_tag_names_are_validated(client):
+    assert client.put("/api/tags", json={"labels": {"mauve": "x"}}).status_code == 400
+    assert client.put("/api/tags", json={"labels": {"blue": "x" * 41}}).status_code == 400
+    assert client.put("/api/tags", json={"labels": "blue"}).status_code == 400
+
+
+def test_tag_names_reach_the_picker_and_the_exports(client):
+    import csv
+    import io
+
+    client.put("/api/tags", json={"labels": {"teal": "Shipping dock"}})
+    client.patch("/api/printers/192.0.2.99", json={"color": "teal"})
+    try:
+        page = client.get("/printer/192.0.2.99").text
+        assert "Shipping dock" in page
+        rows = list(csv.DictReader(io.StringIO(
+            client.get("/export/printers.csv").content.decode("utf-8-sig"))))
+        zebra = next(r for r in rows if r["IP address"] == "192.0.2.99")
+        assert zebra["Color"] == "teal"
+        assert zebra["Color means"] == "Shipping dock"
+    finally:
+        client.patch("/api/printers/192.0.2.99", json={"color": ""})
+        client.put("/api/tags", json={"labels": {"teal": ""}})
+
+
+def test_static_links_carry_a_content_version(client):
+    """Without it, browsers keep pre-upgrade CSS and the new pages break."""
+    import re
+
+    for path in ("/", "/printer/192.0.2.10", "/login"):
+        body = client.get(path).text
+        links = re.findall(r'/static/[\w.]+(\?v=[0-9a-f]*)?"', body)
+        assert links and all(re.fullmatch(r"\?v=[0-9a-f]{10}", v) for v in links), path

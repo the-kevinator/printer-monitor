@@ -96,6 +96,11 @@ class Settings:
         return Path(self.data_dir) / "subnets.json"
 
     @property
+    def tags_file(self) -> Path:
+        """What each colour tag means, as named from the dashboard."""
+        return Path(self.data_dir) / "tags.json"
+
+    @property
     def users_file(self) -> Path:
         return Path(self.data_dir) / "users.json"
 

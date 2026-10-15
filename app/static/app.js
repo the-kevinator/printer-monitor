@@ -27,6 +27,7 @@
     lowThreshold: 20,
     filter: null,          // health state to show, or null for all
     color: "",             // colour tag to show, or "" for all
+    tags: {},              // colour name -> its description, "" if unnamed
     query: "",
     view: "cards",
     sortKey: "ip",
@@ -181,10 +182,17 @@
 
   function hasTag(p) { return COLORS.indexOf(p.color) !== -1; }
 
+  /* "Blue" or "Blue: 2nd floor". */
+  function describeTag(color) {
+    var label = state.tags[color];
+    return capitalize(color) + (label ? ": " + label : "");
+  }
+
   function tagDot(p) {
     if (!hasTag(p)) return "";
-    return '<span class="tag-dot tag-' + esc(p.color) + '" title="' +
-      esc(capitalize(p.color)) + ' tag"></span>';
+    var text = describeTag(p.color);
+    return '<span class="tag-dot tag-' + esc(p.color) + '" title="' + esc(text) +
+      '" role="img" aria-label="' + esc(text) + '"></span>';
   }
 
   function alertBadges(errors) {
@@ -206,7 +214,8 @@
       if (state.color && p.color !== state.color) return false;
       if (!q) return true;
       var hay = [p.display_name, p.ip, p.hostname, p.model, p.vendor,
-                 p.serial_number, p.location, p.sys_name, p.notes, p.color]
+                 p.serial_number, p.location, p.sys_name, p.notes, p.color,
+                 hasTag(p) ? state.tags[p.color] : ""]
         .filter(Boolean).join(" ").toLowerCase();
       return hay.indexOf(q) !== -1;
     });
@@ -394,7 +403,7 @@
     if (state.color && used.indexOf(state.color) === -1) state.color = "";
     el.colorFilter.hidden = !used.length;
     var html = '<option value="">All colors</option>' + used.map(function (c) {
-      return '<option value="' + esc(c) + '">' + esc(capitalize(c)) + "</option>";
+      return '<option value="' + esc(c) + '">' + esc(describeTag(c)) + "</option>";
     }).join("");
     if (el.colorFilter.innerHTML !== html) el.colorFilter.innerHTML = html;
     el.colorFilter.value = state.color;
@@ -507,6 +516,7 @@
       state.summary = data.summary;
       state.poller = data.poller;
       state.lowThreshold = data.low_toner_threshold;
+      applyTags(data.tags);
       if (data.auth) {
         var changed = state.auth.signedIn !== data.auth.signed_in ||
           state.auth.unconfigured !== data.auth.unconfigured;
@@ -970,6 +980,60 @@
     $("account-close").addEventListener("click", function () { dialog.close(); });
   }
 
+  // ------------------------------------------------------ colour tag names
+
+  function applyTags(tags) {
+    state.tags = {};
+    (tags || []).forEach(function (t) { state.tags[t.name] = t.label || ""; });
+  }
+
+  function renderTagRows() {
+    el.tagsList.innerHTML = COLORS.map(function (c) {
+      var count = state.printers.filter(function (p) { return p.color === c; }).length;
+      return '<label class="tag-row">' +
+        '<span class="tag-dot tag-' + esc(c) + '" aria-hidden="true"></span>' +
+        '<span class="tag-row-name">' + esc(capitalize(c)) + "</span>" +
+        '<input type="text" maxlength="40" autocomplete="off" data-color="' + esc(c) +
+          '" value="' + esc(state.tags[c] || "") + '" placeholder="What ' +
+          esc(c) + ' means" aria-label="Description for ' + esc(c) + '">' +
+        '<span class="tag-row-count">' + (count ? count + (count === 1 ? " printer" : " printers") : "unused") + "</span>" +
+        "</label>";
+    }).join("");
+  }
+
+  function openTags() {
+    el.tagsError.hidden = true;
+    renderTagRows();
+    $("tags-dialog").showModal();
+  }
+
+  function wireTagsDialog() {
+    var form = $("tags-form");
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var labels = {};
+      el.tagsList.querySelectorAll("input[data-color]").forEach(function (input) {
+        labels[input.getAttribute("data-color")] = input.value.trim();
+      });
+      var submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      api("/api/tags", { method: "PUT", body: JSON.stringify({ labels: labels }) })
+        .then(function (result) {
+          applyTags(result.tags);
+          $("tags-dialog").close();
+          render();
+        })
+        .catch(function (err) {
+          if (err.status === 401) { handleWriteError(err, ""); return; }
+          el.tagsError.hidden = false;
+          el.tagsError.textContent = err.message;
+        })
+        .then(function () { submit.disabled = false; });
+    });
+    $("tags-cancel").addEventListener("click", function () { $("tags-dialog").close(); });
+    $("edit-tags").addEventListener("click", openTags);
+  }
+
   // -------------------------------------------------------------- actions
 
   function startDiscovery() {
@@ -1070,6 +1134,8 @@
     el.accountError = $("account-error");
     el.accountOk = $("account-ok");
     el.colorFilter = $("color-filter");
+    el.tagsList = $("tags-list");
+    el.tagsError = $("tags-error");
     el.exportMenu = $("export-menu");
 
     el.discoverBtn.addEventListener("click", startDiscovery);
@@ -1084,6 +1150,7 @@
     wireSubnetDialog();
     wireSetupDialog();
     wireAccountDialog();
+    wireTagsDialog();
     if (el.accountsBtn) el.accountsBtn.addEventListener("click", openAccounts);
     renderAccount();
 
@@ -1214,6 +1281,11 @@
     load().then(function () {
       if (state.poller && state.poller.discovery && state.poller.discovery.running) {
         pollDiscoveryUntilDone();
+      }
+      /* The printer page's "Name the colors" link lands here. */
+      if (window.location.hash === "#tags") {
+        history.replaceState(null, "", window.location.pathname + window.location.search);
+        openTags();
       }
     });
     setInterval(function () {

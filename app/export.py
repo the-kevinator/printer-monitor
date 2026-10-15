@@ -61,7 +61,8 @@ def filename(extension: str) -> str:
 
 CSV_COLUMNS = [
     "Name", "IP address", "Hostname", "SNMP sysName", "Vendor", "Model",
-    "Serial number", "MAC address", "Location", "Color", "Status", "Online",
+    "Serial number", "MAC address", "Location", "Color", "Color means",
+    "Status", "Online",
     "Polling enabled", "Lowest toner %", "Supplies", "Page count",
     "Last polled", "Last seen", "First seen", "Web interface", "Source",
     "Notes",
@@ -81,7 +82,9 @@ def _csv_cell(value: Any) -> Any:
     return value
 
 
-def to_csv(records: Iterable[PrinterRecord]) -> bytes:
+def to_csv(records: Iterable[PrinterRecord],
+           labels: dict[str, str] | None = None) -> bytes:
+    labels = labels or {}
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
     writer.writerow(CSV_COLUMNS)
@@ -90,7 +93,8 @@ def to_csv(records: Iterable[PrinterRecord]) -> bytes:
         writer.writerow([_csv_cell(v) for v in (
             r.display_name, r.ip, r.hostname or "", r.sys_name or "",
             r.vendor or "", r.model or "", r.serial_number or "",
-            r.mac_address or "", r.location or "", r.color or "", _status(r),
+            r.mac_address or "", r.location or "", r.color or "",
+            labels.get(r.color or "", ""), _status(r),
             "yes" if r.online else "no", "yes" if r.enabled else "no",
             stats.get("lowest_toner_percent", ""), _supplies(r),
             stats.get("page_count", ""), _when(r.last_polled),
@@ -233,7 +237,9 @@ class _Page:
         )
 
 
-def to_pdf(records: list[PrinterRecord], version: str = "") -> bytes:
+def to_pdf(records: list[PrinterRecord], labels: dict[str, str] | None = None,
+           version: str = "") -> bytes:
+    labels = labels or {}
     exported = time.strftime("%Y-%m-%d %H:%M")
     counts: dict[str, int] = {}
     for r in records:
@@ -249,6 +255,12 @@ def to_pdf(records: list[PrinterRecord], version: str = "") -> bytes:
 
     any_color = any(r.color in PRINTER_COLORS for r in records)
     swatch = 9 if any_color else 0  # room left in the name cell for the tag
+
+    # A key to the swatches, in palette order, for the colours actually used:
+    # a coloured square means nothing on paper without it.
+    used = [c for c in PRINTER_COLORS if any(r.color == c for r in records)]
+    legend = [(c, c.capitalize() + (f": {labels[c]}" if labels.get(c) else ""))
+              for c in used]
 
     def cells(r: PrinterRecord) -> list[list[str]]:
         stats = r.stats or {}
@@ -284,6 +296,17 @@ def to_pdf(records: list[PrinterRecord], version: str = "") -> bytes:
         y -= 15
         page.text(MARGIN, y, subtitle, size=8.5, rgb=MUTED)
         y -= 14
+        if legend:
+            x = MARGIN
+            for color, text in legend:
+                width = 10 + _width(text, "F1", 8) + 14
+                if x + width > PAGE_W - MARGIN:
+                    x = MARGIN
+                    y -= 12
+                page.rect(x, y - 0.5, 6, 6, _rgb(PRINTER_COLORS[color]))
+                page.text(x + 10, y, text, size=8)
+                x += width
+            y -= 14
         # Column headings, repeated on every page.
         head_h = LEADING + 2 * PAD_Y
         x = MARGIN

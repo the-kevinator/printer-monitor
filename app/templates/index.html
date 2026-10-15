@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Printer Monitor</title>
-  <script src="{{ base }}/static/theme.js"></script>
-  <link rel="stylesheet" href="{{ base }}/static/style.css">
+  <script src="{{ base }}/static/theme.js?v={{ asset_v['theme.js'] }}"></script>
+  <link rel="stylesheet" href="{{ base }}/static/style.css?v={{ asset_v['style.css'] }}">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='20'>🖨️</text></svg>">
 </head>
 <body data-base="{{ base }}" data-csrf="{{ csrf_token }}"
@@ -146,6 +146,12 @@
     <span class="meta-note" id="count"></span>
     <span class="spacer"></span>
     <select id="color-filter" class="color-filter" aria-label="Filter by color tag" hidden></select>
+    <button class="btn" type="button" id="edit-tags" title="Say what each color tag means">
+      <span class="tag-stack" aria-hidden="true">
+        <span class="tag-dot tag-red"></span><span class="tag-dot tag-blue"></span><span class="tag-dot tag-green"></span>
+      </span>
+      Tags
+    </button>
     <div class="sortbar">
       <label for="sort-key">Sort</label>
       <select id="sort-key"></select>
@@ -309,6 +315,23 @@
   </div>
 </dialog>
 
+<dialog id="tags-dialog" class="dialog-wide">
+  <h2>Color tags</h2>
+  <form id="tags-form">
+    <p class="hint" style="margin:0">
+      Say what each color means &mdash; a floor, a department, who looks after
+      it. Every printer with that color picks the description up, and it is
+      printed in both exports. Tag a printer from its own page.
+    </p>
+    <div id="tags-error" class="signin-error" role="alert" hidden></div>
+    <div id="tags-list" class="tag-rows"></div>
+    <div class="row">
+      <button class="btn" type="button" id="tags-cancel">Cancel</button>
+      <button class="btn btn-primary" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="setup-dialog">
   <h2>Create the first account</h2>
   <form id="setup-form">
@@ -335,6 +358,6 @@
   </form>
 </dialog>
 
-<script src="{{ base }}/static/app.js"></script>
+<script src="{{ base }}/static/app.js?v={{ asset_v['app.js'] }}"></script>
 </body>
 </html>

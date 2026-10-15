@@ -84,3 +84,12 @@ def test_csv_defuses_formulas_but_leaves_numbers_alone():
     assert "'-Lobby" in text
     assert "'+1 555 0100" in text
     assert ",1000," in text
+
+
+def test_pdf_has_a_legend_for_the_colours_in_use():
+    pdf = export.to_pdf([_printer(1, color="blue"), _printer(2, color="red")],
+                        {"blue": "2nd floor"})
+    text = _page_text(pdf)
+    assert "(Blue: 2nd floor)" in text
+    assert "(Red)" in text
+    assert "(Green" not in text
