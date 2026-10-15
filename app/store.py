@@ -18,6 +18,21 @@ from .jsonfile import quarantine, read_json, write_atomic
 
 SCHEMA_VERSION = 1
 
+# The colour tags a printer can carry, and the swatch each is drawn with in
+# exports. The names are what is stored; the dashboard's stylesheet has its
+# own light and dark values for each.
+PRINTER_COLORS: dict[str, str] = {
+    "red": "#d03b3b",
+    "orange": "#ec835a",
+    "yellow": "#e8b30b",
+    "green": "#0ca30c",
+    "teal": "#00a7c4",
+    "blue": "#2a78d6",
+    "purple": "#8a5cd6",
+    "pink": "#d6379b",
+    "gray": "#898781",
+}
+
 
 @dataclass
 class PrinterRecord:
@@ -42,6 +57,7 @@ class PrinterRecord:
     consecutive_failures: int = 0
     stats: dict[str, Any] | None = None
     notes: str | None = None
+    color: str | None = None  # a PRINTER_COLORS key, or None/"" for untagged
 
     @property
     def display_name(self) -> str:
@@ -168,9 +184,9 @@ class PrinterStore:
         """
         Create or update a printer.
 
-        Fields explicitly set by the user (`label`, `notes`, `enabled`) are
-        never overwritten by a rediscovery, and a record first added manually
-        keeps `source == "manual"`.
+        Fields explicitly set by the user (`label`, `notes`, `color`,
+        `enabled`) are never overwritten by a rediscovery, and a record first
+        added manually keeps `source == "manual"`.
         """
         with self._lock:
             record = self._printers.get(ip)
@@ -213,12 +229,12 @@ class PrinterStore:
 
     def set_fields(self, ip: str, /, **fields: Any) -> PrinterRecord | None:
         """
-        Apply user edits (label, notes, enabled, web_url, community).
+        Apply user edits (label, notes, color, enabled, web_url, community).
 
         Anything else in `fields` is ignored, so a request body can be splatted
         in directly without letting a caller rewrite device facts or the key.
         """
-        editable = {"label", "notes", "enabled", "web_url", "community"}
+        editable = {"label", "notes", "color", "enabled", "web_url", "community"}
         with self._lock:
             record = self._printers.get(ip)
             if record is None:

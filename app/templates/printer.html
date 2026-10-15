@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ printer.display_name }} — Printer Monitor</title>
+  <script src="{{ base }}/static/theme.js"></script>
   <link rel="stylesheet" href="{{ base }}/static/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='20'>🖨️</text></svg>">
 </head>
@@ -34,6 +35,18 @@
       </a>
       <button class="btn" id="refresh" type="button">Poll now</button>
       <button class="btn btn-danger" id="forget" type="button">Forget</button>
+      <button class="btn btn-icon" type="button" data-theme-toggle aria-pressed="false"
+              aria-label="Switch to dark mode" title="Switch to dark mode">
+        <svg class="icon-moon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13.6 9.6A5.8 5.8 0 016.4 2.4a5.8 5.8 0 107.2 7.2z"/>
+        </svg>
+        <svg class="icon-sun" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+          <circle cx="8" cy="8" r="2.9"/>
+          <path d="M8 1.4v1.4M8 13.2v1.4M1.4 8h1.4M13.2 8h1.4M3.3 3.3l1 1M11.7 11.7l1 1M3.3 12.7l1-1M11.7 4.3l1-1"/>
+        </svg>
+      </button>
     </div>
   </div>
 </header>
@@ -44,7 +57,10 @@
   </div>
 
   <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px">
-    <h2 style="margin:0;font-size:22px;letter-spacing:-0.02em">{{ printer.display_name }}</h2>
+    <h2 style="margin:0;font-size:22px;letter-spacing:-0.02em">
+      {%- if printer.color in colors %}<span class="tag-dot tag-{{ printer.color }} tag-dot-lg"
+        title="{{ printer.color | capitalize }} tag"></span>{% endif -%}
+      {{ printer.display_name }}</h2>
     <span id="status-pill"></span>
   </div>
   <p class="meta-note" style="margin:0 0 20px">
@@ -167,6 +183,20 @@
             <textarea id="edit-notes" rows="2"
                       placeholder="e.g. behind reception, key in the top drawer">{{ printer.notes or '' }}</textarea>
           </label>
+          <fieldset class="swatches">
+            <legend>Color tag</legend>
+            <label class="swatch swatch-none" title="No color">
+              <input type="radio" name="color" value=""{% if printer.color not in colors %} checked{% endif %}>
+              <span>None</span>
+            </label>
+            {%- for c in colors %}
+            <label class="swatch" title="{{ c | capitalize }}">
+              <input type="radio" name="color" value="{{ c }}"{% if printer.color == c %} checked{% endif %}>
+              <span class="tag-dot tag-{{ c }}"></span>
+              <span class="sr-only">{{ c | capitalize }}</span>
+            </label>
+            {%- endfor %}
+          </fieldset>
           <label style="display:grid;gap:5px;font-size:12.5px;color:var(--ink-secondary)">
             SNMP community
             <input type="text" id="edit-community" value="{{ printer.community }}">
@@ -353,6 +383,7 @@
       body: JSON.stringify({
         label: document.getElementById("edit-label").value.trim() || null,
         notes: document.getElementById("edit-notes").value.trim() || null,
+        color: (document.querySelector('input[name="color"]:checked') || {}).value || "",
         community: document.getElementById("edit-community").value.trim() || null,
         enabled: document.getElementById("edit-enabled").checked
       })

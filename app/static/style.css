@@ -34,6 +34,19 @@
   --toner-yellow: #e8b30b;
   --toner-other: #898781;
 
+  /* Colour tags people give printers (floor, department, owner...). These
+     are identity, like the toner swatches, and never stand in for status. The
+     light values match PRINTER_COLORS in app/store.py, which the PDF uses. */
+  --tag-red: #d03b3b;
+  --tag-orange: #ec835a;
+  --tag-yellow: #e8b30b;
+  --tag-green: #0ca30c;
+  --tag-teal: #00a7c4;
+  --tag-blue: #2a78d6;
+  --tag-purple: #8a5cd6;
+  --tag-pink: #d6379b;
+  --tag-gray: #898781;
+
   --radius: 10px;
   --radius-sm: 6px;
   --shadow: 0 1px 2px rgba(11, 11, 11, 0.05), 0 1px 1px rgba(11, 11, 11, 0.04);
@@ -58,6 +71,15 @@
     --accent-wash: #184f95;
     --toner-black: #d8d6d0;
     --shadow: none;
+    --tag-red: #e66767;
+    --tag-orange: #f09a76;
+    --tag-yellow: #f0c43a;
+    --tag-green: #3fbf3f;
+    --tag-teal: #2cc0da;
+    --tag-blue: #5a9ced;
+    --tag-purple: #a585e6;
+    --tag-pink: #e45fb2;
+    --tag-gray: #a3a19a;
   }
 }
 
@@ -77,6 +99,15 @@
   --accent-wash: #184f95;
   --toner-black: #d8d6d0;
   --shadow: none;
+  --tag-red: #e66767;
+  --tag-orange: #f09a76;
+  --tag-yellow: #f0c43a;
+  --tag-green: #3fbf3f;
+  --tag-teal: #2cc0da;
+  --tag-blue: #5a9ced;
+  --tag-purple: #a585e6;
+  --tag-pink: #e45fb2;
+  --tag-gray: #a3a19a;
 }
 
 * { box-sizing: border-box; }
@@ -684,7 +715,136 @@ dialog .hint { font-size: 12px; color: var(--ink-muted); }
 @media print {
   .topbar-actions, .toolbar, .card-foot { display: none; }
   body { background: #fff; }
+  /* Paper is white whatever the screen theme is; the repeated :root outranks
+     both dark-mode rules above. */
+  :root:root:root {
+    color-scheme: light;
+    --surface-1: #fff;
+    --plane: #fff;
+    --surface-2: #f2f2ef;
+    --ink-primary: #0b0b0b;
+    --ink-secondary: #52514e;
+    --line-hair: #e1e0d9;
+    --line-axis: #c3c2b7;
+    --ring: rgba(11, 11, 11, 0.10);
+    --toner-black: #23221f;
+  }
 }
+
+/* ------------------------------------------------------------ theme toggle */
+
+.btn.btn-icon { padding: 7px 9px; }
+.icon-sun { display: none; }
+:root[data-theme="dark"] .icon-sun { display: block; }
+:root[data-theme="dark"] .icon-moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .icon-sun { display: block; }
+  :root:not([data-theme="light"]) .icon-moon { display: none; }
+}
+
+/* ------------------------------------------------------------- colour tags */
+
+.tag-red { --tag: var(--tag-red); }
+.tag-orange { --tag: var(--tag-orange); }
+.tag-yellow { --tag: var(--tag-yellow); }
+.tag-green { --tag: var(--tag-green); }
+.tag-teal { --tag: var(--tag-teal); }
+.tag-blue { --tag: var(--tag-blue); }
+.tag-purple { --tag: var(--tag-purple); }
+.tag-pink { --tag: var(--tag-pink); }
+.tag-gray { --tag: var(--tag-gray); }
+
+.tag-dot {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--tag);
+  margin-right: 7px;
+  vertical-align: 0.06em;
+}
+.tag-dot-lg { width: 12px; height: 12px; margin-right: 9px; vertical-align: 0.08em; }
+
+/* A band across the top of the card, so the tag reads from across the room
+   on a wall display without competing with the status edge on the left. */
+.card.has-tag::before {
+  content: "";
+  flex: none;
+  height: 4px;
+  background: var(--tag);
+}
+
+.color-filter { width: auto; padding: 7px 8px; }
+
+/* ----------------------------------------------------------- export menu */
+
+.menu { position: relative; }
+.menu > summary { list-style: none; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu[open] > summary { background: var(--surface-2); border-color: var(--line-axis); }
+.menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  min-width: 250px;
+  background: var(--surface-1);
+  border: 1px solid var(--ring);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  padding: 5px;
+  display: grid;
+}
+.menu-list a {
+  display: grid;
+  gap: 1px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-primary);
+}
+.menu-list a:hover, .menu-list a:focus-visible {
+  background: var(--surface-2);
+  text-decoration: none;
+  outline: none;
+}
+.menu-list a span { font-size: 12px; color: var(--ink-muted); }
+
+/* ------------------------------------------------------- tag swatch picker */
+
+.swatches {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.swatches legend {
+  padding: 0;
+  margin-bottom: 5px;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+}
+.swatch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  border: 1px solid var(--ring);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  cursor: pointer;
+}
+.swatch input { position: absolute; opacity: 0; pointer-events: none; }
+.swatch .tag-dot { width: 14px; height: 14px; margin: 0; }
+.swatch-none { padding: 0 9px; font-size: 12px; color: var(--ink-secondary); }
+.swatch:hover { border-color: var(--line-axis); }
+.swatch:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.swatch:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ------------------------------------------------------- sign-in and account */
 

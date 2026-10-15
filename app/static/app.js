@@ -11,6 +11,8 @@
      an IIS virtual application path such as "/printers". */
   var BASE = (document.body && document.body.dataset.base) || "";
   var DATA = (document.body && document.body.dataset) || {};
+  /* The colour tags a printer can carry, in the server's order. */
+  var COLORS = (DATA.colors || "").split(",").filter(Boolean);
   var state = {
     auth: {
       signedIn: DATA.signedIn === "true",
@@ -24,6 +26,7 @@
     poller: null,
     lowThreshold: 20,
     filter: null,          // health state to show, or null for all
+    color: "",             // colour tag to show, or "" for all
     query: "",
     view: "cards",
     sortKey: "ip",
@@ -172,6 +175,18 @@
       "</div>";
   }
 
+  function capitalize(text) {
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  function hasTag(p) { return COLORS.indexOf(p.color) !== -1; }
+
+  function tagDot(p) {
+    if (!hasTag(p)) return "";
+    return '<span class="tag-dot tag-' + esc(p.color) + '" title="' +
+      esc(capitalize(p.color)) + ' tag"></span>';
+  }
+
   function alertBadges(errors) {
     if (!errors || !errors.length) return "";
     return '<div class="alerts">' + errors.map(function (name) {
@@ -188,9 +203,10 @@
     var q = state.query.trim().toLowerCase();
     return state.printers.filter(function (p) {
       if (state.filter && p.health !== state.filter) return false;
+      if (state.color && p.color !== state.color) return false;
       if (!q) return true;
       var hay = [p.display_name, p.ip, p.hostname, p.model, p.vendor,
-                 p.serial_number, p.location, p.sys_name, p.notes]
+                 p.serial_number, p.location, p.sys_name, p.notes, p.color]
         .filter(Boolean).join(" ").toLowerCase();
       return hay.indexOf(q) !== -1;
     });
@@ -245,10 +261,11 @@
     var webUrl = p.web_url || ("http://" + p.ip);
 
     return '<article class="card is-' + esc(p.health) +
-        (p.enabled ? "" : " is-disabled") + '" data-ip="' + esc(p.ip) + '">' +
+        (p.enabled ? "" : " is-disabled") +
+        (hasTag(p) ? " has-tag tag-" + esc(p.color) : "") + '" data-ip="' + esc(p.ip) + '">' +
       '<div class="card-head">' +
         '<div class="card-title">' +
-          "<h3><a href=\"" + BASE + "/printer/" + esc(p.ip) + "\">" + esc(p.display_name) + "</a></h3>" +
+          "<h3>" + tagDot(p) + "<a href=\"" + BASE + "/printer/" + esc(p.ip) + "\">" + esc(p.display_name) + "</a></h3>" +
           '<div class="card-sub"><span class="ip">' + esc(p.ip) + "</span>" +
             (subParts.length ? '<span class="dot">·</span>' + subParts.join('<span class="dot">·</span>') : "") +
           "</div>" +
@@ -331,7 +348,7 @@
         : '<span class="meta-note">—</span>';
 
       return "<tr>" +
-        '<td><a href="' + BASE + '/printer/' + esc(p.ip) + '">' + esc(p.display_name) + "</a></td>" +
+        "<td>" + tagDot(p) + '<a href="' + BASE + '/printer/' + esc(p.ip) + '">' + esc(p.display_name) + "</a></td>" +
         '<td><a class="mono" href="' + esc(p.web_url || "http://" + p.ip) +
           '" target="_blank" rel="noopener noreferrer">' + esc(p.ip) + "</a></td>" +
         "<td>" + esc(p.model || "—") + "</td>" +
@@ -354,7 +371,7 @@
         "<h2>Scanning the network…</h2>" +
         "<p>Looking for printers that answer SNMP on the configured subnets.</p></div>";
     }
-    if (state.printers.length && (state.filter || state.query)) {
+    if (state.printers.length && (state.filter || state.query || state.color)) {
       return '<div class="empty"><h2>Nothing matches</h2>' +
         "<p>No printer matches the current filter or search.</p>" +
         '<button class="btn" type="button" data-act="clear-filters">Clear filters</button></div>';
@@ -368,9 +385,25 @@
       '<button class="btn" type="button" data-act="add">Add by IP</button></div>';
   }
 
+  /* Offer only the tags actually in use, and nothing at all until one is. */
+  function renderColorFilter() {
+    if (!el.colorFilter) return;
+    var used = COLORS.filter(function (c) {
+      return state.printers.some(function (p) { return p.color === c; });
+    });
+    if (state.color && used.indexOf(state.color) === -1) state.color = "";
+    el.colorFilter.hidden = !used.length;
+    var html = '<option value="">All colors</option>' + used.map(function (c) {
+      return '<option value="' + esc(c) + '">' + esc(capitalize(c)) + "</option>";
+    }).join("");
+    if (el.colorFilter.innerHTML !== html) el.colorFilter.innerHTML = html;
+    el.colorFilter.value = state.color;
+  }
+
   function render() {
     renderTiles();
     renderSortControls();
+    renderColorFilter();
 
     var rows = visiblePrinters();
     rows.sort(function (a, b) {
@@ -1036,6 +1069,8 @@
     el.accountCount = $("account-count");
     el.accountError = $("account-error");
     el.accountOk = $("account-ok");
+    el.colorFilter = $("color-filter");
+    el.exportMenu = $("export-menu");
 
     el.discoverBtn.addEventListener("click", startDiscovery);
     $("poll-now").addEventListener("click", function () {
@@ -1055,6 +1090,26 @@
     $("search").addEventListener("input", function (event) {
       state.query = event.target.value;
       render();
+    });
+
+    el.colorFilter.addEventListener("change", function (event) {
+      state.color = event.target.value;
+      render();
+    });
+
+    /* <details> opens and closes itself; it only needs telling to close when
+       the click lands elsewhere, on Escape, and once a format is chosen. */
+    document.addEventListener("click", function (event) {
+      if (el.exportMenu.open && (!el.exportMenu.contains(event.target) ||
+          event.target.closest(".menu-list a"))) {
+        el.exportMenu.open = false;
+      }
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && el.exportMenu.open) {
+        el.exportMenu.open = false;
+        el.exportMenu.querySelector("summary").focus();
+      }
     });
 
     el.viewCards.addEventListener("click", function () { setView("cards"); });
@@ -1088,7 +1143,8 @@
           return;
         }
         if (action === "clear-filters") {
-          state.filter = null; state.query = ""; $("search").value = ""; render(); return;
+          state.filter = null; state.query = ""; state.color = "";
+          $("search").value = ""; render(); return;
         }
       }
       var th = event.target.closest("th[data-sort]");

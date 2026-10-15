@@ -41,8 +41,9 @@ from secrets import token_urlsafe
 
 from .config import Settings, load_settings
 from .discovery import DiscoveryRunner
+from . import export
 from .poller import PollerService
-from .store import PrinterStore
+from .store import PRINTER_COLORS, PrinterStore
 from .subnets import SubnetError, SubnetStore
 
 log = logging.getLogger("printer_monitor")
@@ -324,6 +325,19 @@ def _validate_web_url(url: str | None) -> str | None:
     return text
 
 
+def _validate_color(color: Any) -> str:
+    """A colour tag must be one of the named swatches; "" or null clears it."""
+    if color is None or color == "":
+        return ""
+    text = str(color).strip().lower()
+    if text not in PRINTER_COLORS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"color must be one of {sorted(PRINTER_COLORS)}, or empty",
+        )
+    return text
+
+
 def _record_payload(record) -> dict[str, Any]:
     data = record.as_dict()
     stats = data.get("stats") or {}
@@ -377,6 +391,7 @@ async def dashboard(request: Request):
             "config_problems": state.config_problems,
             "auth": _auth_payload(user),
             "csrf_token": csrf_token,
+            "colors": list(PRINTER_COLORS),
         },
     )
     _issue_csrf(request, response, csrf_token)
@@ -475,6 +490,7 @@ async def printer_page(request: Request, ip: str):
             "low_threshold": state.settings.low_toner_threshold,
             "auth": _auth_payload(current_user(request)),
             "csrf_token": csrf_token,
+            "colors": list(PRINTER_COLORS),
         },
     )
     _issue_csrf(request, response, csrf_token)
@@ -571,10 +587,12 @@ async def update_printer(
     _user: User | None = Depends(require_auth),
 ):
     _valid_ip(ip)
-    allowed = {"label", "notes", "enabled", "web_url", "community"}
+    allowed = {"label", "notes", "color", "enabled", "web_url", "community"}
     fields = {k: v for k, v in payload.items() if k in allowed}
     if "web_url" in fields:
         fields["web_url"] = _validate_web_url(fields["web_url"])
+    if "color" in fields:
+        fields["color"] = _validate_color(fields["color"])
     if not fields:
         raise HTTPException(
             status_code=400,
@@ -602,6 +620,38 @@ async def refresh_printer(ip: str, _user: User | None = Depends(require_auth)):
     stats = state.poller.poll_single(ip)
     record = state.store.get(ip)
     return {"printer": _record_payload(record), "stats": stats}
+
+
+# ---------------------------------------------------------------------------
+# Exports
+# ---------------------------------------------------------------------------
+
+# Open like every other read: the same fields, notes included, are already
+# served by /api/printers to anyone who can reach the dashboard.
+
+
+@app.get("/export/printers.csv")
+async def export_csv():
+    return Response(
+        content=export.to_csv(state.store.all()),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="{export.filename("csv")}"',
+        },
+    )
+
+
+@app.get("/export/printers.pdf")
+async def export_pdf():
+    return Response(
+        content=export.to_pdf(state.store.all(), version=VERSION),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="{export.filename("pdf")}"',
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

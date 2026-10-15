@@ -198,6 +198,14 @@ def test_reading_stays_open_to_everyone(secured):
         assert secured.get(path).status_code == 200, path
 
 
+def test_exports_are_open_but_tagging_a_printer_is_a_write(secured):
+    """Exports read what /api/printers already serves; a colour tag is an edit."""
+    for path in ("/export/printers.csv", "/export/printers.pdf"):
+        assert secured.get(path).status_code == 200
+    assert secured.patch("/api/printers/192.0.2.10",
+                         json={"color": "blue"}).status_code == 401
+
+
 def test_signing_in_then_writing_works(secured):
     assert sign_in(secured).status_code == 303
     assert secured.get("/api/printers").json()["auth"]["username"] == "jdoe"

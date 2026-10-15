@@ -347,3 +347,78 @@ def test_web_url_must_be_http_or_https(client):
 
     # Put it back for any later test.
     client.patch("/api/printers/192.0.2.10", json={"web_url": "https://192.0.2.10"})
+
+
+# -- colour tags ------------------------------------------------------------
+
+
+def test_color_tag_can_be_set_and_cleared(client):
+    response = client.patch("/api/printers/192.0.2.10", json={"color": "Blue"})
+    assert response.status_code == 200
+    assert response.json()["color"] == "blue"
+    assert client.get("/api/printers/192.0.2.10").json()["color"] == "blue"
+
+    # The detail page marks the saved swatch as the selected one.
+    page = client.get("/printer/192.0.2.10").text
+    assert 'value="blue" checked' in page
+
+    cleared = client.patch("/api/printers/192.0.2.10", json={"color": ""})
+    assert cleared.status_code == 200
+    assert not cleared.json()["color"]
+
+
+def test_color_tag_must_be_a_known_swatch(client):
+    """It becomes a CSS class name, so free text is refused, not escaped."""
+    for bad in ["chartreuse", "red; background:url(x)", "#ff0000", 3]:
+        response = client.patch("/api/printers/192.0.2.10", json={"color": bad})
+        assert response.status_code == 400, f"{bad!r} was accepted"
+
+
+# -- exports ----------------------------------------------------------------
+
+
+def test_dashboard_offers_exports_and_theme_toggle(client):
+    body = client.get("/").text
+    assert "/export/printers.csv" in body
+    assert "/export/printers.pdf" in body
+    assert "data-theme-toggle" in body
+    assert "/static/theme.js" in body
+    assert 'data-colors="red,' in body
+
+
+def test_csv_export_includes_every_printer_and_its_notes(client):
+    import csv
+    import io
+
+    client.patch(
+        "/api/printers/192.0.2.99",
+        json={"notes": "=HYPERLINK(\"http://x\") by the dock", "color": "teal"},
+    )
+    try:
+        response = client.get("/export/printers.csv")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/csv")
+        assert "attachment" in response.headers["content-disposition"]
+        assert response.content.startswith(b"\xef\xbb\xbf")  # BOM, for Excel
+
+        rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8-sig"))))
+        by_ip = {row["IP address"]: row for row in rows}
+        assert set(by_ip) == {"192.0.2.10", "192.0.2.99"}
+        zebra = by_ip["192.0.2.99"]
+        assert zebra["Name"] == "Warehouse label printer"
+        assert zebra["Color"] == "teal"
+        assert zebra["Status"] == "Offline"
+        # A note that starts like a formula is defused, not dropped.
+        assert zebra["Notes"] == "'=HYPERLINK(\"http://x\") by the dock"
+        assert by_ip["192.0.2.10"]["Page count"] == "184321"
+    finally:
+        client.patch("/api/printers/192.0.2.99", json={"notes": "", "color": ""})
+
+
+def test_pdf_export_is_a_pdf(client):
+    response = client.get("/export/printers.pdf")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert "attachment" in response.headers["content-disposition"]
+    assert response.content.startswith(b"%PDF-1.4")
+    assert response.content.rstrip().endswith(b"%%EOF")

@@ -51,6 +51,14 @@ just that one, without touching a config file or restarting:
   page count, location or last poll, ascending or descending, in both the card
   and table views. The table's column headers sort too, and your choice is
   remembered in the browser.
+- **Colour tags.** Give any printer one of nine colours from its detail page
+  — by floor, department, whoever looks after it — and it shows as a band on
+  its card and a dot in the table, with a filter to show one colour at a time.
+- **Export to CSV or PDF.** Every printer with its notes, from the Export menu.
+  The CSV carries every field for a spreadsheet; the PDF is a printable
+  inventory, written without any extra library.
+- **Light and dark mode.** Follows the operating system until you flip the
+  toggle in the header; the choice is remembered in the browser.
 - Cards view, table view, search, health filters, per-printer detail pages, and
   a JSON API for anything else you want to build.
 
@@ -445,7 +453,7 @@ header once an account exists, and return `401` otherwise. Reads are open.
 | `GET` | `/api/printers` | All printers with stats. Supports `?health=`, `?q=`, `?enabled_only=` |
 | `GET` | `/api/printers/{ip}` | One printer |
 | `POST` 🔒 | `/api/printers` | Add one by hand: `{"ip": "...", "label": "...", "community": "..."}` |
-| `PATCH` 🔒 | `/api/printers/{ip}` | Edit `label`, `notes`, `enabled`, `web_url`, `community` |
+| `PATCH` 🔒 | `/api/printers/{ip}` | Edit `label`, `notes`, `color`, `enabled`, `web_url`, `community`. `color` is one of `red orange yellow green teal blue purple pink gray`, or `""` to clear |
 | `DELETE` 🔒 | `/api/printers/{ip}` | Remove from the inventory |
 | `POST` 🔒 | `/api/printers/{ip}/refresh` | Poll one printer immediately |
 | `GET` | `/api/subnets` | The scan and never-scan lists, each entry with its validation result |
@@ -468,6 +476,8 @@ header once an account exists, and return `401` otherwise. Reads are open.
 | `POST` | `/logout` | Clear the session cookie |
 | `GET` | `/healthz` | Liveness, printer count, poller state, whether accounts exist |
 | `GET` | `/open/{ip}` | Redirect to that printer's web interface |
+| `GET` | `/export/printers.csv` | Every printer and field, notes included, as a CSV download |
+| `GET` | `/export/printers.pdf` | The same inventory as a printable PDF |
 
 Interactive API docs are at `/docs`.
 
@@ -535,7 +545,7 @@ monitor it. A host is treated as a printer only if something exists under
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt pytest httpx
-.venv/bin/python -m pytest              # 205 tests, no network needed
+.venv/bin/python -m pytest              # 218 tests, no network needed
 .venv/bin/python manage.py serve --reload
 ```
 
